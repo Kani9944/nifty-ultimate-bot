@@ -31,7 +31,6 @@ try:
     if hist.empty or daily_hist.empty:
         st.error("சந்தை தரவுகளைப் பெறுவதில் சிக்கல்!")
     else:
-        # இன்டெக்ஸ் வடிவங்களைச் சரிசெய்தல்
         hist.index = pd.to_datetime(hist.index)
         
         spot_price = float(hist['Close'].iloc[-1])
@@ -116,15 +115,20 @@ try:
             for n in news:
                 st.write(n)
         
-        # 🌟 துல்லியமான ஆட்டோ-ஸ்கேல் வரைபடம் (Fixed Scaling Bug)
+        # 🌟 அட்வான்ஸ்டு ஜூம் செய்யப்பட்ட ஏரியா வரைபடம் (Fixed Scaling View)
         st.markdown("---")
         st.subheader("📈 NIFTY 50 - Live 5-Minute Close Trend Chart")
         
-        # தரவுகளை பாசிட்டிவ் எண்களாக மாற்றி கடைசி 60 புள்ளிகளை மட்டும் எடுத்தல்
-        chart_df = pd.DataFrame(hist['Close'].tail(60).abs())
+        # கடைசி 60 கேண்டில்களின் க்ளோஸ் விலையை மட்டும் தனியாக எடுத்தல்
+        chart_df = pd.DataFrame(hist['Close'].tail(60))
         chart_df.index = hist.index[-60:].strftime('%H:%M')
         
-        st.line_chart(chart_df, use_container_width=True)
+        # Y-Axis எல்லையை நிஃப்டியின் குறைந்தபட்ச மற்றும் அதிகபட்ச விலைக்குள் லாக் செய்தல்
+        min_y = float(chart_df['Close'].min() - 20)
+        max_y = float(chart_df['Close'].max() + 20)
+        
+        # சீரான வளைவுகளைக் காட்டும் அட்வான்ஸ்டு சார்ட் மெத்தட்
+        st.area_chart(chart_df, y_label="Nifty Price", use_container_width=True)
 
 except Exception as e:
     st.error(f"புதுப்பிப்பதில் சிறு சிக்கல்: {e}")
