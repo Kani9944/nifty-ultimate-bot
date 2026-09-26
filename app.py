@@ -1,11 +1,13 @@
 import altair as alt
+import feedparser
 import numpy as np
 import pandas as pd
+import requests
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 import yfinance as yf
 
-# ============ PAGE CONFIG & REFRESH ============
+# ============ PAGE CONFIG & AUTO REFRESH ============
 st.set_page_config(page_title="Nifty Monitor", layout="wide")
 st_autorefresh(interval=30 * 1000, key="refresh")
 st.title("NIFTY 50 - Smart Money & Market Monitor")
@@ -28,7 +30,7 @@ def get_nifty50_breadth():
         "LT.NS", "AXISBANK.NS", "BAJFINANCE.NS", "ASIANPAINT.NS", "MARUTI.NS",
         "HCLTECH.NS", "SUNPHARMA.NS", "TITAN.NS", "WIPRO.NS", "ULTRACEMCO.NS",
         "ONGC.NS", "NTPC.NS", "POWERGRID.NS", "M&M.NS", "TATAMOTORS.NS",
-        "TATASTEEL.NS", "JSWSTEEL.NS", "ADANIENT.NS", "ADANIPORTS.NS", "COALINDIA.NS"
+        "TATASTEEL.NS", "JSWSTEEL.NS", "ADANIENT.NS", "ADANIPORTS.NS", "COALINDIA.NS",
     ]
     stocks = []
     for sym in symbols:
@@ -76,6 +78,30 @@ def get_sector_data():
         except Exception:
             pass
     return result
+
+
+@st.cache_data(ttl=300)
+def get_market_news():
+    fallback = ["Market news feed தற்போது கிடைக்கவில்லை."]
+    try:
+        r = requests.get(
+            "https://www.moneycontrol.com/rss/marketreports.xml",
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=5,
+        )
+        r.raise_for_status()
+        feed = feedparser.parse(r.content)
+        news = []
+        for entry in feed.entries[:5]:
+            title = entry.get("title", "Market Update")
+            link = entry.get("link", "")
+            if link:
+                news.append(f"[{title}]({link})")
+            else:
+                news.append(title)
+        return news if news else fallback, None
+    except Exception as e:
+        return fallback, str(e)
 
 
 # ============ PAPER TRADING FUNCTIONS ============
@@ -135,7 +161,7 @@ try:
         st.error("Nifty data unavailable.")
         st.stop()
 
-    # Timezone handling
+    # Timezone conversion
     hist.index = pd.to_datetime(hist.index)
     hist.index = hist.index.tz_convert("Asia/Kolkata") if hist.index.tz is not None else hist.index.tz_localize("Asia/Kolkata")
 
@@ -182,7 +208,7 @@ try:
     if session_hist["VWAP"].isna().all():
         session_hist["VWAP"] = typical.expanding().mean()
 
-    # Metrics Display
+    # Metric Cards
     m1, m2, m3 = st.columns(3)
     with m1:
         st.metric("NIFTY 50 Spot", f"Rs {spot_price:,.2f}")
@@ -222,7 +248,7 @@ try:
             for s in sorted_stocks[-5:][::-1]:
                 st.write(f"**{s['Symbol']}**: Rs {s['LTP']:,.2f} (`{s['Change%']:+.2f}%`)")
 
-    # ============ SECTOR HEATMAP ============
+    # ============ SECTOR PERFORMANCE ============
     st.markdown("---")
     st.subheader("Sector Performance")
     sector_data = get_sector_data()
@@ -258,16 +284,21 @@ try:
         {"Level": "PDL", "Value": float(pdl), "Color": "#009900", "Time": chart_start},
     ])
 
-    valid_closes = [x for x in chart_df["Close"] if pd.notna(x) and x > 0]
-    valid_vwaps = [x for x in chart_df["VWAP"].dropna() if x > 0]
-    valid_levels = [x for x in levels_data["Value"] if x > 0]
+    # Dynamic Floor & Ceiling Filter
+    nifty_floor = spot_price * 0.90
+    nifty_ceiling = spot_price * 1.10
+
+    valid_closes = [x for x in chart_df["Close"] if pd.notna(x) and nifty_floor < x < nifty_ceiling]
+    valid_vwaps = [x for x in chart_df["VWAP"].dropna() if nifty_floor < x < nifty_ceiling]
+    valid_levels = [x for x in levels_data["Value"] if nifty_floor < x < nifty_ceiling]
     all_prices = valid_closes + valid_vwaps + valid_levels
 
     if all_prices:
-        min_val = float(min(all_prices) - 20)
-        max_val = float(max(all_prices) + 20)
+        min_val = float(min(all_prices) - 30)
+        max_val = float(max(all_prices) + 30)
     else:
-        min_val, max_val = 22000.0, 26000.0
+        min_val = spot_price - 200
+        max_val = spot_price + 200
 
     price_line = (
         alt.Chart(chart_df)
@@ -320,6 +351,15 @@ try:
     ).properties(height=420, title="NIFTY Intraday - Price, VWAP, CPR")
 
     st.altair_chart(final_chart, use_container_width=True)
+
+    # ============ MARKET NEWS ============
+    st.markdown("---")
+    st.subheader("Market News")
+    news_items, news_err = get_market_news()
+    if news_err:
+        st.caption(f"Note: {news_err}")
+    for n in news_items:
+        st.markdown(f"- {n}")
 
     # ============ PAPER TRADING ============
     st.markdown("---")
@@ -385,3 +425,4 @@ try:
 
 except Exception as e:
     st.error(f"Error: {e}")
+    
