@@ -39,7 +39,7 @@ def get_heavyweight_intraday(symbol):
   return yf.Ticker(symbol).history(period="1d", interval="5m")
 
 
-# 3. Moneycontrol RSS Feed (அமைதியான ஃபால்பேக் - Toast எரர் நீக்கப்பட்டது)
+# 3. Moneycontrol RSS Feed (அமைதியான ஃபால்பேக்)
 @st.cache_data(ttl=300)
 def get_market_news():
   fallback_news = [
@@ -611,7 +611,7 @@ try:
   min_val = float(min(all_valid_prices) - 30)
   max_val = float(max(all_valid_prices) + 30)
 
-  # 1. Price Line Chart (விலை மற்றும் நேரத்திற்கான துல்லியமான Tooltip)
+  # 1. Price Line Chart (விலை மற்றும் நேரத்திற்கான துல்லியமான Tooltip மட்டும்)
   price_line = (
       alt.Chart(chart_df)
       .mark_line(color="#0052cc", strokeWidth=2.5)
@@ -643,6 +643,10 @@ try:
           y=alt.Y(
               "VWAP:Q", scale=alt.Scale(domain=[min_val, max_val], zero=False)
           ),
+          tooltip=[
+              alt.Tooltip("Time:T", title="Time", format="%d-%b %H:%M"),
+              alt.Tooltip("VWAP:Q", title="Session VWAP", format=",.2f"),
+          ],
       )
   )
 
@@ -663,7 +667,7 @@ try:
       )
   )
 
-  # 4. CPR Band (தொல்லை தரும் பாப்-அப் பாக்ஸ் முற்றிலும் நீக்கப்பட்டுள்ளது)
+  # 4. CPR Band (Tooltip நிரந்தரமாக அகற்றப்பட்டது)
   cpr_band_data = pd.DataFrame([{
       "_Start": chart_start,
       "_End": chart_end,
@@ -673,7 +677,7 @@ try:
 
   cpr_band = (
       alt.Chart(cpr_band_data)
-      .mark_rect(color="#9ecae1", opacity=0.18, tooltip=None)
+      .mark_rect(color="#9ecae1", opacity=0.18)
       .encode(
           x=alt.X("_Start:T"),
           x2="_End:T",
@@ -681,18 +685,20 @@ try:
               "_Lower:Q", scale=alt.Scale(domain=[min_val, max_val], zero=False)
           ),
           y2="_Upper:Q",
+          tooltip=alt.value(None),
       )
   )
 
-  # 5. PDH / R1 / TC / Pivot / BC / S1 / PDL கிடைமட்டக் கோடுகள் (Tooltip முற்றிலும் நீக்கப்பட்டுள்ளது)
+  # 5. PDH / R1 / TC / Pivot / BC / S1 / PDL கிடைமட்டக் கோடுகள் (Tooltip நிரந்தரமாக அகற்றப்பட்டது)
   level_rules = (
       alt.Chart(levels_data)
-      .mark_rule(strokeDash=[4, 4], strokeWidth=1.2, tooltip=None)
+      .mark_rule(strokeDash=[4, 4], strokeWidth=1.2)
       .encode(
           y=alt.Y(
               "Value:Q", scale=alt.Scale(domain=[min_val, max_val], zero=False)
           ),
           color=alt.Color("Color:N", scale=None, legend=None),
+          tooltip=alt.value(None),
       )
   )
 
@@ -705,7 +711,6 @@ try:
           dy=-4,
           fontSize=11,
           fontWeight="bold",
-          tooltip=None,
       )
       .encode(
           x=alt.X("Time:T"),
@@ -714,10 +719,11 @@ try:
           ),
           text=alt.Text("Level:N"),
           color=alt.Color("Color:N", scale=None, legend=None),
+          tooltip=alt.value(None),
       )
   )
 
-  # 7. Current Price Label (dy=22 கொண்டு Pivot உடன் மோதாமல் கீழே வைக்கப்பட்டுள்ளது)
+  # 7. Current Price Label
   current_price_label_data = pd.DataFrame([{
       "Time": chart_df["Time"].max() + pd.Timedelta(minutes=3),
       "Price": spot_price,
@@ -733,7 +739,6 @@ try:
           fontSize=11,
           fontWeight="bold",
           color="#0052cc",
-          tooltip=None,
       )
       .encode(
           x=alt.X("Time:T"),
@@ -741,6 +746,7 @@ try:
               "Price:Q", scale=alt.Scale(domain=[min_val, max_val], zero=False)
           ),
           text=alt.Text("Label:N"),
+          tooltip=alt.value(None),
       )
   )
 
