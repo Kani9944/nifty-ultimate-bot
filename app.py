@@ -23,6 +23,37 @@ def format_lakhs(val):
   return f"{val / 100000:,.2f}L"
 
 
+# ஆங்கிலச் செய்திகளைத் தமிழில் மாற்றும் முறை
+def translate_to_tamil(text):
+  replacements = {
+      "Taking Stock:": "சந்தை நிலவரம்:",
+      "Mid-day Mood |": "மத்திய நேர நிலவரம் |",
+      "Sensex, Nifty": "சென்செக்ஸ், நிஃப்டி",
+      "gain for third day in a row": "தொடர்ந்து 3-வது நாளாக உயர்வு",
+      "easing volatility to support bull trend": (
+          "குறைந்த ஏற்ற இறக்கம் ஏற்றத்திற்கு ஆதரவு"
+      ),
+      "Market fails to hold on to day's gains, ends marginally higher": (
+          "ஆரம்ப லாபத்தை தக்கவைக்க முடியாமல் குறைந்த லாபத்தில் முடிந்த சந்தை"
+      ),
+      "Cooling volatility sparks market rally": (
+          "குறைந்த ஏற்ற இறக்கத்தால் சந்தையில் ஏற்றம்"
+      ),
+      "India VIX sees steepest fall in 4 years": (
+          "இந்தியா VIX 4 ஆண்டுகளில் இல்லாத அளவு கடும் சரிவு"
+      ),
+      "net profit falls": "நிகர லாபம் சரிந்தது",
+      "net profit, revenue decline": "நிகர லாபம், வருவாய் சரிவு",
+      "insurer announces dividend": "டிவிடெண்ட் அறிவிப்பு",
+      "declares dividend of": "பங்கிற்கு டிவிடெண்ட் அறிவிப்பு:",
+      "per share": "",
+      "to focus on growing": "வளர்ச்சியில் கவனம் செலுத்துகிறது",
+  }
+  for eng, tam in replacements.items():
+    text = text.replace(eng, tam)
+  return text
+
+
 # கேச்சிங் முறைகள்
 @st.cache_data(ttl=25)
 def get_stock_data(symbol, period, interval=None):
@@ -44,7 +75,7 @@ def get_heavyweight_intraday(symbol):
   return yf.Ticker(symbol).history(period="1d", interval="5m")
 
 
-# சந்தை செய்திகளுக்கான பல செய்தி ஓடைகள் (Multi-Feed RSS)
+# சந்தை செய்திகள் ஃபீட் (தானியங்கித் தமிழாக்கத்துடன்)
 @st.cache_data(ttl=300)
 def get_market_news():
   fallback = ["📰 சந்தை செய்திகள் தற்போது கிடைக்கவில்லை."]
@@ -53,7 +84,6 @@ def get_market_news():
       "https://www.moneycontrol.com/rss/business.xml",
       "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
       "https://www.livemint.com/rss/markets",
-      "https://www.business-standard.com/rss/markets-106.rss",
   ]
   all_news = []
   headers = {"User-Agent": "Mozilla/5.0"}
@@ -67,18 +97,20 @@ def get_market_news():
         link = entry.get("link", "")
         if not title:
           continue
+
+        tamil_title = translate_to_tamil(title)
         if link:
-          all_news.append(f"📰 [{title}]({link})")
+          all_news.append(f"📰 [{tamil_title}]({link})")
         else:
-          all_news.append(f"📰 {title}")
+          all_news.append(f"📰 {tamil_title}")
       if len(all_news) >= 6:
         break
     except Exception:
       continue
 
   if all_news:
-    return all_news[:6], None
-  return fallback, "All market feeds failed"
+    return all_news[:6]
+  return fallback
 
 
 def get_autonomous_session_change(data):
@@ -404,8 +436,7 @@ try:
     st.write(f"🔹 **RSI (14):** {rsi_val:.2f} ➔ {rsi_status}")
     st.markdown("---")
     st.subheader("🌐 நேரலை சந்தை செய்திகள்")
-    news_items, news_err = get_market_news()
-    for n in news_items:
+    for n in get_market_news():
       st.write(n)
 
   # சார்ட் பகுதி
