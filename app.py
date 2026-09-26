@@ -573,11 +573,11 @@ try:
   chart_df["Time"] = chart_df.index
   chart_df = chart_df.reset_index(drop=True)
 
-  # VWAP Fallback: Volume விடுபட்டிருந்தால் விலைக்கோட்டையே VWAP ஆகப் பயன்படுத்துதல்
+  # VWAP Fallback
   if chart_df["VWAP"].isna().all():
     chart_df["VWAP"] = chart_df["Close"]
 
-  # வலதுபுறத்தில் லேபிள்களுக்கு 15 நிமிடங்கள் இடைவெளி
+  # வலதுபுறத்தில் இடைவெளி
   chart_start = chart_df["Time"].min()
   chart_end = chart_df["Time"].max() + pd.Timedelta(minutes=15)
 
@@ -592,7 +592,7 @@ try:
   ])
   levels_data["Time"] = chart_df["Time"].max() + pd.Timedelta(minutes=3)
 
-  # Auto-Zoom: 0-விலிருந்து போகாமல் வர்த்தக வரம்பை மட்டும் ஜூம் செய்ய
+  # Auto-Zoom
   all_valid_prices = [
       p
       for p in (
@@ -636,5 +636,8 @@ try:
       )
   )
 
-  # 3. Current Price Dot Marker
-  latest_bar = chart_df.iloc[[-1
+  # 3. Current Price Dot Marker (பாதுகாப்பான ஒற்றை வரிசை DataFrame)
+  latest_bar = chart_df.tail(1)
+  price_dot = (
+      alt.Chart(latest_bar)
+      .mark_point(color="#0052cc", filled=True, size=85, shape="circle
