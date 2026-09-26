@@ -4,6 +4,7 @@ import pandas as pd
 import ta
 import numpy as np
 import feedparser
+import altair as alt
 
 st.set_page_config(page_title="Nifty AI Ultimate Monitor Pro", layout="wide")
 st.title("🚀 NIFTY 50 AI Ultimate Trading Panel")
@@ -115,15 +116,25 @@ try:
             for n in news:
                 st.write(n)
         
-        # 🌟 பிக்ஸ் செய்யப்பட்ட இறுதிப் பகுதி (Auto-Scaled Native Line Chart)
+        # 🌟 பிக்ஸ் செய்யப்பட்ட இறுதி ஜூம் வரைபடம் (Altair Auto-Scale Chart)
         st.markdown("---")
         st.subheader("📈 NIFTY 50 - Live 5-Minute Close Trend Chart")
         
-        # கடைசி 60 புள்ளிகளின் க்ளோஸ் விலையை மட்டும் எடுத்தல்
-        chart_series = hist['Close'].tail(60)
+        # கடைசி 60 கேண்டில் தரவுகளைத் தயார் செய்தல்
+        chart_df = hist[['Close']].tail(60).reset_index()
+        chart_df['Time'] = chart_df['Datetime'].dt.strftime('%H:%M')
         
-        # எவ்வித எர்ரருமின்றி ஸ்ட்ரீம்லிட் தானாகவே விலைக்குத் தகுந்தாற்போல் சுருங்கி வளைவுகளைக் காட்டும்
-        st.line_chart(chart_series, use_container_width=True)
+        # குறைந்தபட்ச மற்றும் அதிகபட்ச விலையைக் கண்டறிந்து எல்லையை லாக் செய்தல்
+        min_val = float(chart_df['Close'].min() - 15)
+        max_val = float(chart_df['Close'].max() + 15)
+        
+        # அட்வான்ஸ்டு ஜூம் சார்ட் டிசைன்
+        chart = alt.Chart(chart_df).mark_line(color="#0066cc", strokeWidth=2.5).encode(
+            x=alt.X('Time:N', title='Time (5-Min Candles)', axis=alt.Axis(labelAngle=0)),
+            y=alt.Y('Close:Q', title='Nifty Price', scale=alt.Scale(domain=[min_val, max_val]))
+        ).properties(height=350)
+        
+        st.altair_chart(chart, use_container_width=True)
 
 except Exception as e:
     st.error(f"புதுப்பிப்பதில் சிறு சிக்கல்: {e}")
