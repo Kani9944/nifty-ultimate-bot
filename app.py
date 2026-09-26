@@ -18,74 +18,7 @@ st_autorefresh(
     key="nifty_refresh",
 )
 
-st.title("🦅 NIFTY 50 - Market Monitor")
-
-
-@st.cache_data(ttl=25)
-def get_history(symbol, period, interval=None):
-    ticker = yf.Ticker(symbol)
-
-    if interval:
-        return ticker.history(
-            period=period,
-            interval=interval,
-        )
-
-    return ticker.history(period=period)
-
-
-@st.cache_data(ttl=300)
-def get_news():
-    url = (
-        "https://www.moneycontrol.com/"
-        "rss/marketreports.xml"
-    )
-
-    try:
-        response = requests.get(
-            url,
-            headers={
-                "User-Agent": "Mozilla/5.0",
-            },
-            timeout=3,
-        )
-
-        if response.status_code != 200:
-            return [
-                "📰 Market news currently unavailable."
-            ]
-
-        feed = feedparser.parse(
-            response.content
-        )
-
-        result = []
-
-        for entry in feed.entries[:5]:
-            title = entry.get(
-                "title",
-                "",
-            )
-
-            link = entry.get(
-                "link",
-                "",
-            )
-
-            if title and link:
-                result.append(
-                    f"📰 [{title}]({link})"
-                )
-
-        if result:
-            return result
-
-    except Exception:
-        pass
-
-    return [
-        "📰 Market news currently unavailable."
-    ]
+st.title("🦅 NIFTY 50 - Smart Money & Market Monitor")
 
 
 def to_ist(data):
@@ -106,49 +39,7 @@ def to_ist(data):
     return output
 
 
-def calculate_rsi(close, window=14):
-    delta = close.diff()
-
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-
-    avg_gain = gain.rolling(
-        window=window,
-        min_periods=window,
-    ).mean()
-
-    avg_loss = loss.rolling(
-        window=window,
-        min_periods=window,
-    ).mean()
-
-    rs = avg_gain / avg_loss
-    result = 100 - (
-        100 / (1 + rs)
-    )
-
-    result = result.mask(
-        (avg_loss == 0)
-        & (avg_gain > 0),
-        100.0,
-    )
-
-    result = result.mask(
-        (avg_gain == 0)
-        & (avg_loss > 0),
-        0.0,
-    )
-
-    result = result.mask(
-        (avg_gain == 0)
-        & (avg_loss == 0),
-        50.0,
-    )
-
-    return result
-
-
-def last_change(data):
+def get_last_change(data):
     if data is None or len(data) < 2:
         return None, None
 
@@ -172,6 +63,192 @@ def last_change(data):
     return current, change
 
 
+def get_rsi(close, period=14):
+    delta = close.diff()
+
+    gains = delta.clip(lower=0)
+    losses = -delta.clip(upper=0)
+
+    avg_gain = gains.rolling(
+        window=period,
+        min_periods=period,
+    ).mean()
+
+    avg_loss = losses.rolling(
+        window=period,
+        min_periods=period,
+    ).mean()
+
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+
+    rsi = rsi.mask(
+        (avg_loss == 0)
+        & (avg_gain > 0),
+        100.0,
+    )
+
+    rsi = rsi.mask(
+        (avg_gain == 0)
+        & (avg_loss > 0),
+        0.0,
+    )
+
+    rsi = rsi.mask(
+        (avg_gain == 0)
+        & (avg_loss == 0),
+        50.0,
+    )
+
+    return rsi
+
+
+@st.cache_data(ttl=25)
+def get_history(symbol, period, interval=None):
+    ticker = yf.Ticker(symbol)
+
+    if interval:
+        return ticker.history(
+            period=period,
+            interval=interval,
+        )
+
+    return ticker.history(
+        period=period,
+    )
+
+
+@st.cache_data(ttl=120)
+def get_heavyweights():
+    symbols = [
+        "RELIANCE.NS",
+        "TCS.NS",
+        "HDFCBANK.NS",
+        "INFY.NS",
+        "ICICIBANK.NS",
+        "HINDUNILVR.NS",
+        "ITC.NS",
+        "SBIN.NS",
+        "BHARTIARTL.NS",
+        "KOTAKBANK.NS",
+        "LT.NS",
+        "AXISBANK.NS",
+        "BAJFINANCE.NS",
+        "ASIANPAINT.NS",
+        "MARUTI.NS",
+        "TITAN.NS",
+    ]
+
+    results = []
+
+    for symbol in symbols:
+        try:
+            data = yf.Ticker(
+                symbol
+            ).history(
+                period="2d",
+                interval="1d",
+            )
+
+            if len(data) < 2:
+                continue
+
+            current = float(
+                data["Close"].iloc[-1]
+            )
+
+            previous = float(
+                data["Close"].iloc[-2]
+            )
+
+            if previous <= 0:
+                continue
+
+            change = (
+                (current - previous)
+                / previous
+                * 100
+            )
+
+            results.append({
+                "Symbol": symbol.replace(
+                    ".NS",
+                    "",
+                ),
+                "LTP": round(current, 2),
+                "Change%": round(change, 2),
+            })
+
+        except Exception:
+            continue
+
+    return results
+
+
+@st.cache_data(ttl=300)
+def get_news():
+    feeds = [
+        "https://tamil.goodreturns.in/rss/feeds/tamil-money-news-fb.xml",
+        "https://www.moneycontrol.com/rss/marketreports.xml",
+        "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
+    ]
+
+    result = []
+
+    for url in feeds:
+        try:
+            response = requests.get(
+                url,
+                headers={
+                    "User-Agent": "Mozilla/5.0",
+                },
+                timeout=2,
+            )
+
+            if response.status_code != 200:
+                continue
+
+            feed = feedparser.parse(
+                response.content
+            )
+
+            for entry in feed.entries[:3]:
+                title = entry.get(
+                    "title",
+                    "",
+                ).strip()
+
+                link = entry.get(
+                    "link",
+                    "",
+                )
+
+                if not title:
+                    continue
+
+                if link:
+                    result.append(
+                        f"📰 [{title}]({link})"
+                    )
+                else:
+                    result.append(
+                        f"📰 {title}"
+                    )
+
+            if len(result) >= 6:
+                break
+
+        except Exception:
+            continue
+
+    if result:
+        return result[:6]
+
+    return [
+        "📰 Market news தற்போது கிடைக்கவில்லை."
+    ]
+
+
 try:
     nifty = get_history(
         "^NSEI",
@@ -179,7 +256,7 @@ try:
         "5m",
     )
 
-    nifty_daily = get_history(
+    daily = get_history(
         "^NSEI",
         "5d",
         "1d",
@@ -197,21 +274,21 @@ try:
         "5m",
     )
 
-    if nifty.empty or nifty_daily.empty:
+    if nifty.empty or daily.empty:
         st.error(
             "Nifty data கிடைக்கவில்லை. "
-            "சில நிமிடங்கள் கழித்து மீண்டும் முயற்சிக்கவும்."
+            "சில நிமிடங்கள் கழித்து முயற்சிக்கவும்."
         )
         st.stop()
 
-    if len(nifty_daily) < 2:
+    if len(daily) < 2:
         st.error(
             "CPR கணக்கிட போதுமான daily data கிடைக்கவில்லை."
         )
         st.stop()
 
     nifty = to_ist(nifty)
-    nifty_daily = to_ist(nifty_daily)
+    daily = to_ist(daily)
 
     today = pd.Timestamp.now(
         tz="Asia/Kolkata"
@@ -220,38 +297,37 @@ try:
     if (
         nifty.index.date == today
     ).any():
-        session_date = today
+        active_date = today
     else:
-        session_date = nifty.index[-1].date()
+        active_date = nifty.index[-1].date()
 
     session = nifty[
-        nifty.index.date == session_date
+        nifty.index.date == active_date
     ].copy()
 
     if session.empty:
-        st.error(
-            "Selected market session data கிடைக்கவில்லை."
-        )
+        st.error("Session data கிடைக்கவில்லை.")
         st.stop()
 
     spot = float(
         session["Close"].iloc[-1]
     )
 
-    previous_sessions = nifty_daily[
-        nifty_daily.index.date
-        < session_date
+    _, nifty_change = get_last_change(
+        session
+    )
+
+    old_sessions = daily[
+        daily.index.date < active_date
     ]
 
-    if previous_sessions.empty:
+    if old_sessions.empty:
         st.error(
             "Previous session data கிடைக்கவில்லை."
         )
         st.stop()
 
-    previous_day = previous_sessions.iloc[
-        -1
-    ]
+    previous_day = old_sessions.iloc[-1]
 
     pdh = float(
         previous_day["High"]
@@ -303,7 +379,7 @@ try:
         pdh - pdl
     )
 
-    typical_price = (
+    typical = (
         session["High"]
         + session["Low"]
         + session["Close"]
@@ -314,8 +390,7 @@ try:
     ].cumsum()
 
     cumulative_value = (
-        typical_price
-        * session["Volume"]
+        typical * session["Volume"]
     ).cumsum()
 
     session["VWAP"] = np.where(
@@ -332,6 +407,14 @@ try:
         session["VWAP"].iloc[-1]
     )
 
+    bank_price, bank_change = get_last_change(
+        bank_nifty
+    )
+
+    vix_price, vix_change = get_last_change(
+        india_vix
+    )
+
     ema9 = float(
         nifty["Close"].ewm(
             span=9,
@@ -346,52 +429,40 @@ try:
         ).mean().iloc[-1]
     )
 
-    rsi_data = calculate_rsi(
+    rsi_series = get_rsi(
         nifty["Close"],
         14,
     )
 
-    if pd.notna(rsi_data.iloc[-1]):
-        rsi_value = float(
-            rsi_data.iloc[-1]
+    if pd.notna(rsi_series.iloc[-1]):
+        rsi = float(
+            rsi_series.iloc[-1]
         )
     else:
-        rsi_value = 50.0
-
-    _, nifty_delta = last_change(
-        session
-    )
-
-    bank_price, bank_delta = last_change(
-        bank_nifty
-    )
-
-    vix_price, vix_delta = last_change(
-        india_vix
-    )
+        rsi = 50.0
 
     st.caption(
-        f"Active session: "
-        f"{session_date.strftime('%d-%b-%Y')} | "
-        f"Last bar: "
+        f"Session: "
+        f"{active_date.strftime('%d-%b-%Y')} | "
+        f"Last Nifty bar: "
         f"{session.index[-1].strftime('%H:%M IST')} | "
-        "Yahoo Finance data may be delayed."
+        "Yahoo Finance feed may be delayed."
     )
 
-    metric_1, metric_2, metric_3 = st.columns(3)
+    top_1, top_2, top_3 = st.columns(3)
 
-    with metric_1:
+    with top_1:
         st.metric(
             "NIFTY 50",
             f"₹{spot:,.2f}",
             (
-                f"{nifty_delta:+.2f}% (5m)"
-                if nifty_delta is not None
+                f"{nifty_change:+.2f}% (5m)"
+                if nifty_change is not None
                 else "N/A"
             ),
         )
 
-    with metric_2:
+    with top_2:
         st.metric(
             "BANK NIFTY",
             (
@@ -400,13 +471,13 @@ try:
                 else "N/A"
             ),
             (
-                f"{bank_delta:+.2f}% (5m)"
-                if bank_delta is not None
+                f"{bank_change:+.2f}% (5m)"
+                if bank_change is not None
                 else "N/A"
             ),
         )
 
-    with metric_3:
+    with top_3:
         st.metric(
             "INDIA VIX",
             (
@@ -415,8 +486,8 @@ try:
                 else "N/A"
             ),
             (
-                f"{vix_delta:+.2f}% (5m)"
-                if vix_delta is not None
+                f"{vix_change:+.2f}% (5m)"
+                if vix_change is not None
                 else "N/A"
             ),
             delta_color="inverse",
@@ -429,24 +500,24 @@ try:
         spot > TC,
         spot > vwap,
         ema9 > ema21,
-        rsi_value >= 55,
+        rsi >= 55,
     ]
 
     bearish = [
         spot < BC,
         spot < vwap,
         ema9 < ema21,
-        rsi_value <= 45,
+        rsi <= 45,
     ]
 
     if all(bullish):
         st.success(
-            "🟢 Bullish technical alignment detected."
+            "🟢 Bullish technical alignment."
         )
 
     elif all(bearish):
         st.error(
-            "🔴 Bearish technical alignment detected."
+            "🔴 Bearish technical alignment."
         )
 
     else:
@@ -456,7 +527,7 @@ try:
         )
 
     st.caption(
-        "Technical context only; "
+        "Technical analysis only; "
         "not a trading recommendation."
     )
 
@@ -474,35 +545,31 @@ try:
 
     if spot > vwap:
         st.write(
-            "🟢 Price is above VWAP."
+            "🟢 Price is above session VWAP."
         )
     else:
         st.write(
-            "🔴 Price is below VWAP."
+            "🔴 Price is below session VWAP."
         )
 
-    if rsi_value >= 70:
+    if rsi >= 70:
         st.write(
-            f"⚠️ RSI overbought: "
-            f"{rsi_value:.1f}"
+            f"⚠️ RSI overbought: {rsi:.1f}"
         )
 
-    elif rsi_value <= 30:
+    elif rsi <= 30:
         st.write(
-            f"🟢 RSI oversold: "
-            f"{rsi_value:.1f}"
+            f"🟢 RSI oversold: {rsi:.1f}"
         )
 
     if spot > pdh:
         st.write(
-            f"🚀 PDH breakout: "
-            f"above ₹{pdh:,.2f}"
+            f"🚀 PDH breakout above ₹{pdh:,.2f}"
         )
 
     elif spot < pdl:
         st.write(
-            f"🩸 PDL breakdown: "
-            f"below ₹{pdl:,.2f}"
+            f"🩸 PDL breakdown below ₹{pdl:,.2f}"
         )
 
     st.markdown("---")
@@ -560,6 +627,48 @@ try:
 
     st.markdown("---")
     st.subheader(
+        "🏢 Nifty Heavyweights "
+        "- Top Gainers & Losers"
+    )
+
+    heavyweight_data = get_heavyweights()
+
+    if heavyweight_data:
+        sorted_heavyweights = sorted(
+            heavyweight_data,
+            key=lambda item: item["Change%"],
+            reverse=True,
+        )
+
+        gainers, losers = st.columns(2)
+
+        with gainers:
+            st.markdown("### 🟢 Top Gainers")
+
+            for stock in sorted_heavyweights[:5]:
+                st.write(
+                    f"**{stock['Symbol']}** — "
+                    f"₹{stock['LTP']:,.2f} "
+                    f"({stock['Change%']:+.2f}%)"
+                )
+
+        with losers:
+            st.markdown("### 🔴 Top Losers")
+
+            for stock in sorted_heavyweights[-5:][::-1]:
+                st.write(
+                    f"**{stock['Symbol']}** — "
+                    f"₹{stock['LTP']:,.2f} "
+                    f"({stock['Change%']:+.2f}%)"
+                )
+
+    else:
+        st.warning(
+            "Heavyweight data unavailable."
+        )
+
+    st.markdown("---")
+    st.subheader(
         "📈 NIFTY Intraday Chart - "
         "Price, VWAP & CPR"
     )
@@ -587,7 +696,7 @@ try:
         )
 
     else:
-        chart_values = (
+        values = (
             chart_data["Close"]
             .dropna()
             .tolist()
@@ -607,7 +716,7 @@ try:
 
         valid_values = [
             float(value)
-            for value in chart_values
+            for value in values
             if pd.notna(value)
             and np.isfinite(value)
             and abs(
@@ -635,9 +744,9 @@ try:
                 spot + 250,
             ]
 
-        figure = go.Figure()
+        chart = go.Figure()
 
-        figure.add_hrect(
+        chart.add_hrect(
             y0=BC,
             y1=TC,
             fillcolor="LightSkyBlue",
@@ -646,7 +755,7 @@ try:
             layer="below",
         )
 
-        figure.add_trace(
+        chart.add_trace(
             go.Scatter(
                 x=chart_data.index,
                 y=chart_data["Close"],
@@ -659,7 +768,7 @@ try:
             )
         )
 
-        figure.add_trace(
+        chart.add_trace(
             go.Scatter(
                 x=chart_data.index,
                 y=chart_data["VWAP"],
@@ -673,7 +782,7 @@ try:
             )
         )
 
-        chart_levels = [
+        levels = [
             (
                 "PDH",
                 pdh,
@@ -721,8 +830,8 @@ try:
         start_time = chart_data.index[0]
         end_time = chart_data.index[-1]
 
-        for name, price, color, dash in chart_levels:
-            figure.add_trace(
+        for name, price, color, dash in levels:
+            chart.add_trace(
                 go.Scatter(
                     x=[
                         start_time,
@@ -742,7 +851,7 @@ try:
                 )
             )
 
-        figure.update_layout(
+        chart.update_layout(
             height=450,
             margin=dict(
                 l=10,
@@ -769,52 +878,50 @@ try:
         )
 
         st.plotly_chart(
-            figure,
+            chart,
             use_container_width=True,
         )
 
     st.markdown("---")
     st.subheader("Technical Indicators")
 
-    indicator_1, indicator_2, indicator_3, indicator_4 = (
-        st.columns(4)
-    )
+    i1, i2, i3, i4 = st.columns(4)
 
-    with indicator_1:
+    with i1:
         st.metric(
             "EMA 9",
             f"₹{ema9:,.2f}",
         )
 
-    with indicator_2:
+    with i2:
         st.metric(
             "EMA 21",
             f"₹{ema21:,.2f}",
         )
 
-    with indicator_3:
+    with i3:
         st.metric(
             "Session VWAP",
             f"₹{vwap:,.2f}",
         )
 
-    with indicator_4:
+    with i4:
         st.metric(
             "RSI (14)",
-            f"{rsi_value:.2f}",
+            f"{rsi:.2f}",
         )
 
     st.markdown("---")
     st.subheader("🌐 Market News")
 
-    for news_item in get_news():
-        st.markdown(news_item)
+    for item in get_news():
+        st.markdown(item)
 
     st.caption(
         "Data source: Yahoo Finance via yfinance. "
         "Quotes may be delayed or unavailable. "
-        "This dashboard is for analysis only, "
-        "not financial advice."
+        "This dashboard is for educational "
+        "and analysis use only."
     )
 
 except Exception:
