@@ -1,4 +1,4 @@
-iimport altair as alt
+jiimport altair as alt
 import feedparser
 import numpy as np
 import pandas as pd
@@ -440,13 +440,7 @@ with e2:
             "Paper Trades CSV",
         )
 
-with e3:
-    summary_df = pd.DataFrame([{
-        "Time": pd.Timestamp.now(
-            tz="Asia/Kolkata"
-        ).strftime("%Y-%m-%d %H:%M"),
-        "Note": "Nifty Snapshot",
-    }])
+
     
 with e3:
     summary_df = pd.DataFrame([{
