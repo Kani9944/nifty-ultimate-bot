@@ -1,4 +1,4 @@
-import altair as alt
+iimport altair as alt
 import feedparser
 import numpy as np
 import pandas as pd
@@ -447,6 +447,8 @@ with e3:
         ).strftime("%Y-%m-%d %H:%M"),
         "Note": "Nifty Snapshot",
     }])
-    to_csv_download(
-    summary_df,)
     
+        summary_df,
+    "nifty_snapshot.csv",
+    "Daily Snapshot CSV",
+)
