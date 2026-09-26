@@ -1,3 +1,4 @@
+streamlit-autorefresh
 streamlit
 yfinance
 pandas
