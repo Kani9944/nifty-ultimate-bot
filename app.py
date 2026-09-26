@@ -39,36 +39,38 @@ def get_heavyweight_intraday(symbol):
   return yf.Ticker(symbol).history(period="1d", interval="5m")
 
 
-# 3. Moneycontrol RSS Feed (அமைதியான ஃபால்பேக்)
+# 3. மல்டி-சோர்ஸ் மார்க்கெட் நியூஸ் ஃபீட் (Moneycontrol + Livemint fallback)
 @st.cache_data(ttl=300)
 def get_market_news():
-  fallback_news = [
-      "📰 **Market news feed தற்போது அணுக முடியவில்லை.**",
-      "📰 **Nifty மற்றும் உலகளாவிய சந்தை நிலவரங்களைத் தனியாகச் சரிபார்க்கவும்.**",
+  feed_urls = [
+      "https://www.livemint.com/rss/markets",
+      "https://www.moneycontrol.com/rss/markets.xml",
   ]
-  try:
-    headers = {"User-Agent": "Mozilla/5.0"}
-    r = requests.get(
-        "https://www.moneycontrol.com/rss/markets.xml",
-        headers=headers,
-        timeout=5,
-    )
-    feed = feedparser.parse(r.content)
-    news_list = []
-    for entry in getattr(feed, "entries", [])[:4]:
-      title = entry.get("title", "Market Update")
-      link = entry.get("link")
-      if link:
-        news_list.append(f"📰 **[{title}]({link})**")
-      else:
-        news_list.append(f"📰 **{title}**")
+  headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
-    if news_list:
-      return news_list
-  except Exception:
-    pass
+  for url in feed_urls:
+    try:
+      r = requests.get(url, headers=headers, timeout=4)
+      if r.status_code == 200:
+        feed = feedparser.parse(r.content)
+        news_list = []
+        for entry in getattr(feed, "entries", [])[:4]:
+          title = entry.get("title", "").strip()
+          link = entry.get("link", "")
+          if title:
+            if link:
+              news_list.append(f"📰 **[{title}]({link})**")
+            else:
+              news_list.append(f"📰 **{title}**")
+        if news_list:
+          return news_list
+    except Exception:
+      continue
 
-  return fallback_news
+  return [
+      "📰 **சந்தை விடுமுறை / நேரலைச் செய்திகள் இணைப்பில் இல்லை.**",
+      "📰 **Nifty முக்கிய ரெசிஸ்டன்ஸ் & சப்போர்ட் அளவுகளைச் சரிபார்க்கவும்.**",
+  ]
 
 
 # 4. குறியீடுகளின் சொந்த அமர்வைக் கண்டறியும் தன்னாட்சி முறை
@@ -117,7 +119,7 @@ def get_previous_close_for_session(daily_data, target_date):
   return float(earlier["Close"].iloc[-1])
 
 
-# 6. Safe Indicator Trend Label Helper (Fix 1: Flat/At Par சேர்க்கப்பட்டது)
+# 6. Safe Indicator Trend Label Helper
 def trend_label(price, indicator):
   if pd.isna(indicator):
     return "⚪ Insufficient data"
@@ -260,7 +262,7 @@ try:
   ema21_val = float(hist["EMA21"].iloc[-1])
   rsi_val = float(hist["RSI"].iloc[-1])
 
-  # Fix 3: RSI 6-level Granular Logic
+  # RSI 6-level Granular Logic
   if pd.isna(rsi_val):
     rsi_status = "⚪ Insufficient data"
   elif rsi_val >= 70:
@@ -274,7 +276,7 @@ try:
   else:
     rsi_status = "⚖️ Neutral Zone (40-60)"
 
-  # Market Structure / Signal Strength Logic (VWAP At Par சாதகமாக கணக்கிடப்படுகிறது)
+  # Market Structure / Signal Strength Logic
   indicator_ready = all(
       pd.notna(value) for value in [ema9_val, ema21_val, rsi_val, vwap_val]
   )
@@ -518,7 +520,7 @@ try:
     st.markdown("---")
     st.subheader("📌 Normalized CPR & Pivots")
 
-    # Fix 2: Nifty-specific 3-level CPR Thresholds
+    # Nifty-specific 3-level CPR Thresholds
     if cpr_width_pct < 0.20:
       st.success(
           f"🔥 **Narrow CPR ({cpr_width_pct:.2f}%):** ஒருபக்க"
@@ -686,7 +688,7 @@ try:
       )
   )
 
-  # 4. CPR Band (Tooltip நிரந்தரமாக அகற்றப்பட்டது)
+  # 4. CPR Band (Tooltip முற்றிலுமாக நீக்கப்பட்டுள்ளது)
   cpr_band_data = pd.DataFrame([{
       "_Start": chart_start,
       "_End": chart_end,
@@ -742,7 +744,7 @@ try:
       )
   )
 
-  # 7. Current Price Label
+  # 7. Current Price Label (தனித்துத் தெரியும் அடர் சிவப்பு நிறம் + Pivot-க்குக் கீழே)
   current_price_label_data = pd.DataFrame([{
       "Time": chart_df["Time"].max() + pd.Timedelta(minutes=3),
       "Price": spot_price,
@@ -754,10 +756,11 @@ try:
       .mark_text(
           align="left",
           dx=8,
-          dy=22,
+          dy=24,
           fontSize=11,
           fontWeight="bold",
-          color="#0052cc",
+          color="#d9381e",
+          tooltip=None,
       )
       .encode(
           x=alt.X("Time:T"),
@@ -791,7 +794,7 @@ try:
   # அடிக்குறிப்பு
   st.caption(
       "🔵 Price  |  🟠 Session VWAP  |  🔴 PDH/R1  |  🔵 CPR (TC/Pivot/BC)  |"
-      "  🟢 S1/PDL  —  Values are Yahoo Finance delayed feed-based."
+      "  🟢 S1/PDL  |  🔴 LTP  —  Values are Yahoo Finance delayed feed-based."
   )
 
 except Exception as e:
