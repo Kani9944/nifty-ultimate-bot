@@ -9,7 +9,6 @@ st.set_page_config(page_title="Nifty AI Ultimate Monitor Pro", layout="wide")
 st.title("🚀 NIFTY 50 AI Ultimate Trading Panel")
 
 def get_market_news():
-    # நேரடி மணிபிரைஸ் ஆர்.எஸ்.எஸ் ஃபீட் லிங்க்
     rss_url = "https://moneycontrol.com"
     feed = feedparser.parse(rss_url)
     news_list = []
@@ -17,11 +16,10 @@ def get_market_news():
         for entry in feed.entries[:4]:
             news_list.append(f"📰 **[{entry.title}]({entry.link})**")
     else:
-        # ஃபீட் கிடைக்கவில்லை என்றால் மாற்றுச் செய்திகள்
         news_list = [
-            "📰 **Nifty Trade Update: நிஃப்டி இன்று வலுவான ஏற்றத்துடன் வர்த்தகம்.**",
-            "📰 **Global Market: ஆசிய மற்றும் அமெரிக்கச் சந்தைகள் ஏறுமுகத்தில் வர்த்தகம்.**",
-            "📰 **FII DII Flow: உள்நாட்டு நிறுவனங்கள் தொடர்ந்து பங்குகளைக் கொள்முதல் செய்கின்றன.**"
+            "📰 **Nifty Trade Update: நிஃப்டி இன்று சீரான வர்த்தகத்தை மேற்கொண்டு வருகிறது.**",
+            "📰 **Global Market: உலகளாவிய சந்தைகளில் கலவையான வர்த்தக சூழல் நிலவுகிறது.**",
+            "📰 **FII DII Flow: நிறுவன முதலீட்டாளர்கள் சந்தை நகர்வுகளை உன்னிப்பாகக் கவனிக்கின்றனர்.**"
         ]
     return news_list
 
@@ -33,8 +31,11 @@ try:
     if hist.empty or daily_hist.empty:
         st.error("சந்தை தரவுகளைப் பெறுவதில் சிக்கல்!")
     else:
-        spot_price = hist['Close'].iloc[-1]
-        prev_close = daily_hist['Close'].iloc[-2]
+        # இன்டெக்ஸ் வடிவங்களைச் சரிசெய்தல்
+        hist.index = pd.to_datetime(hist.index)
+        
+        spot_price = float(hist['Close'].iloc[-1])
+        prev_close = float(daily_hist['Close'].iloc[-2])
         change = spot_price - prev_close
         percent_change = (change / prev_close) * 100
         
@@ -115,12 +116,15 @@ try:
             for n in news:
                 st.write(n)
         
-        # 🌟 வரைபட பகுதி சீரமைப்பு (Auto-Scaled Chart)
+        # 🌟 துல்லியமான ஆட்டோ-ஸ்கேல் வரைபடம் (Fixed Scaling Bug)
         st.markdown("---")
         st.subheader("📈 NIFTY 50 - Live 5-Minute Close Trend Chart")
-        chart_data = hist[['Close']].tail(60)
-        # Y-Axis அளவை நிஃப்டி விலைக்கு ஏற்ப தானாக சுருக்கிக் காட்டும்
-        st.line_chart(chart_data, y_label="Price", use_container_width=True)
+        
+        # தரவுகளை பாசிட்டிவ் எண்களாக மாற்றி கடைசி 60 புள்ளிகளை மட்டும் எடுத்தல்
+        chart_df = pd.DataFrame(hist['Close'].tail(60).abs())
+        chart_df.index = hist.index[-60:].strftime('%H:%M')
+        
+        st.line_chart(chart_df, use_container_width=True)
 
 except Exception as e:
     st.error(f"புதுப்பிப்பதில் சிறு சிக்கல்: {e}")
