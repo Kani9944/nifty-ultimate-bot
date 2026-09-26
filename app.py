@@ -7,7 +7,7 @@ from streamlit_autorefresh import st_autorefresh
 import yfinance as yf
 
 # App Config
-st.set_page_config(page_title="Nifty Monitor", layout="wide")
+st.set_page_config(page_title="Nifty Monitor & Strategy", layout="wide")
 st_autorefresh(interval=30 * 1000, key="refresh")
 st.title("🦅 NIFTY 50 - Smart Money & Market Monitor")
 
@@ -167,7 +167,7 @@ def get_market_news():
           break
     except Exception:
       continue
-  return news[:6] if news else ["📰 தமிழ் வணிகச் செய்திகள் தற்போது கிடைக்கவில்லை."]
+  return news[:6] if news else ["📰 தமிழ் வணிகச் செய்திகள் கிடைக்கவில்லை."]
 
 
 try:
@@ -181,16 +181,17 @@ try:
     st.stop()
 
   hist.index = pd.to_datetime(hist.index)
-  if hist.index.tz is not None:
-    hist.index = hist.index.tz_convert("Asia/Kolkata")
-  else:
-    hist.index = hist.index.tz_localize("Asia/Kolkata")
-
+  hist.index = (
+      hist.index.tz_convert("Asia/Kolkata")
+      if hist.index.tz is not None
+      else hist.index.tz_localize("Asia/Kolkata")
+  )
   daily.index = pd.to_datetime(daily.index)
-  if daily.index.tz is not None:
-    daily.index = daily.index.tz_convert("Asia/Kolkata")
-  else:
-    daily.index = daily.index.tz_localize("Asia/Kolkata")
+  daily.index = (
+      daily.index.tz_convert("Asia/Kolkata")
+      if daily.index.tz is not None
+      else daily.index.tz_localize("Asia/Kolkata")
+  )
 
   today = pd.Timestamp.now(tz="Asia/Kolkata").date()
   session_date = (
@@ -211,17 +212,17 @@ try:
     st.stop()
 
   prev_day = prev_sessions.iloc[-1]
-  pdh = float(prev_day["High"])
-  pdl = float(prev_day["Low"])
-  pdc = float(prev_day["Close"])
+  pdh, pdl, pdc = (
+      float(prev_day["High"]),
+      float(prev_day["Low"]),
+      float(prev_day["Close"]),
+  )
 
   PP = (pdh + pdl + pdc) / 3
   BC = min((pdh + pdl) / 2, (2 * PP) - ((pdh + pdl) / 2))
   TC = max((pdh + pdl) / 2, (2 * PP) - ((pdh + pdl) / 2))
-  R1 = (2 * PP) - pdl
-  S1 = (2 * PP) - pdh
-  R2 = PP + (pdh - pdl)
-  S2 = PP - (pdh - pdl)
+  R1, S1 = (2 * PP) - pdl, (2 * PP) - pdh
+  R2, S2 = PP + (pdh - pdl), PP - (pdh - pdl)
 
   typ = (session_hist["High"] + session_hist["Low"] + session_hist["Close"]) / 3
   cv = session_hist["Volume"].cumsum()
@@ -236,7 +237,6 @@ try:
 
   ema9_val = float(hist["Close"].ewm(span=9, adjust=False).mean().iloc[-1])
   ema21_val = float(hist["Close"].ewm(span=21, adjust=False).mean().iloc[-1])
-
   rsi_series = calculate_rsi(hist["Close"], window=14)
   rsi_val = (
       float(rsi_series.iloc[-1]) if pd.notna(rsi_series.iloc[-1]) else 50.0
@@ -247,53 +247,122 @@ try:
       else spot_price
   )
 
-  # ========== TOP METRICS ==========
-  top_c1, top_c2, top_c3, top_c4, top_c5 = st.columns(5)
-  top_c1.metric(
-      "NIFTY 50",
-      f"₹{spot_price:,.2f}",
-      f"{nifty_5m:+.2f}% (5m)" if nifty_5m is not None else None,
-  )
-  top_c2.metric(
-      "BANK NIFTY",
-      f"₹{bn_price:,.2f}" if bn_price is not None else "N/A",
-      f"{bn_5m:+.2f}% (5m)" if bn_5m is not None else None,
-  )
-  top_c3.metric(
-      "INDIA VIX",
-      f"{vix_val:.2f}" if vix_val is not None else "N/A",
-      f"{vix_5m:+.2f}% (5m)" if vix_5m is not None else None,
-      delta_color="inverse",
-  )
-  top_c4.metric("PDH", f"₹{pdh:,.2f}")
-  top_c5.metric("PDL", f"₹{pdl:,.2f}")
+  # ========== 1. TOP METRICS (FORCE SIDE-BY-SIDE MOBILE VIEW) ==========
+  nd_str = f"{nifty_5m:+.2f}%" if nifty_5m is not None else "0.00%"
+  bd_str = f"{bn_5m:+.2f}%" if bn_5m is not None else "0.00%"
+  vd_str = f"{vix_5m:+.2f}%" if vix_5m is not None else "0.00%"
 
-  # ========== LIVE ALERTS ==========
+  nc_color = "#00b300" if (nifty_5m or 0) >= 0 else "#cc0000"
+  bc_color = "#00b300" if (bn_5m or 0) >= 0 else "#cc0000"
+  vc_color = "#cc0000" if (vix_5m or 0) >= 0 else "#00b300"
+  bn_val_str = f"₹{bn_price:,.2f}" if bn_price is not None else "N/A"
+  vix_val_str = f"{vix_val:.2f}" if vix_val is not None else "N/A"
+
+  st.write(
+      f"""
+    <div style="border: 1px solid #333; border-radius: 6px; padding: 8px; margin-bottom: 12px; font-family: monospace; background: #fff;">
+        <div style="display: flex; border-bottom: 1px solid #333; padding-bottom: 6px;">
+            <div style="flex: 1; padding: 4px; border-right: 1px solid #333;">
+                <div style="font-size: 11px; color: #555;">NIFTY 50</div>
+                <div style="font-size: 16px; font-weight: bold;">₹{spot_price:,.2f}</div>
+                <div style="font-size: 11px; color: {nc_color};">{nd_str}</div>
+            </div>
+            <div style="flex: 1; padding: 4px; padding-left: 8px;">
+                <div style="font-size: 11px; color: #555;">BANK NIFTY</div>
+                <div style="font-size: 16px; font-weight: bold;">{bn_val_str}</div>
+                <div style="font-size: 11px; color: {bc_color};">{bd_str}</div>
+            </div>
+        </div>
+        <div style="border-bottom: 1px solid #333; padding: 6px 0; text-align: center;">
+            <div style="font-size: 11px; color: #555;">INDIA VIX</div>
+            <div style="font-size: 16px; font-weight: bold;">{vix_val_str}</div>
+            <div style="font-size: 11px; color: {vc_color};">{vd_str}</div>
+        </div>
+        <div style="display: flex; padding-top: 6px;">
+            <div style="flex: 1; padding: 4px; border-right: 1px solid #333;">
+                <div style="font-size: 11px; color: #555;">PDH</div>
+                <div style="font-size: 15px; font-weight: bold;">₹{pdh:,.2f}</div>
+            </div>
+            <div style="flex: 1; padding: 4px; padding-left: 8px;">
+                <div style="font-size: 11px; color: #555;">PDL</div>
+                <div style="font-size: 15px; font-weight: bold;">₹{pdl:,.2f}</div>
+            </div>
+        </div>
+    </div>
+    """,
+      unsafe_allow_html=True,
+  )
+
+  # ========== 2. LIVE INTRADAY STRATEGY ENGINE ==========
+  st.markdown("---")
+  st.subheader("⚡ நேரலை டிரேடிங் ஸ்ட்ராடஜி (Strategy Signal)")
+
+  buy_conditions = [
+      spot_price > TC,
+      spot_price > vwap_val,
+      ema9_val > ema21_val,
+      rsi_val >= 55,
+  ]
+  sell_conditions = [
+      spot_price < BC,
+      spot_price < vwap_val,
+      ema9_val < ema21_val,
+      rsi_val <= 45,
+  ]
+
+  if all(buy_conditions):
+    target = round(min(R1, spot_price + 60), 2)
+    stoploss = round(max(BC, vwap_val - 15), 2)
+    st.success(
+        f"🟢 **BUY SIGNAL (Call Option சாதகம்)**\n\n"
+        f"- **காரணம்:** விலை CPR (TC) மற்றும் VWAP-க்கு மேல் உள்ளது. EMA 9 > EMA"
+        f" 21, RSI: {rsi_val:.1f}\n"
+        f"- **என்ட்ரி வரம்பு:** ₹{spot_price:,.2f}\n"
+        f"- **இலக்கு (Target):** ₹{target:,.2f} (R1)\n"
+        f"- **ஸ்டாப்லாஸ் (SL):** ₹{stoploss:,.2f}"
+    )
+  elif all(sell_conditions):
+    target = round(max(S1, spot_price - 60), 2)
+    stoploss = round(min(TC, vwap_val + 15), 2)
+    st.error(
+        f"🔴 **SELL SIGNAL (Put Option சாதகம்)**\n\n"
+        f"- **காரணம்:** விலை CPR (BC) மற்றும் VWAP-க்கு கீழ் உள்ளது. EMA 9 <"
+        f" EMA 21, RSI: {rsi_val:.1f}\n"
+        f"- **என்ட்ரி வரம்பு:** ₹{spot_price:,.2f}\n"
+        f"- **இலக்கு (Target):** ₹{target:,.2f} (S1)\n"
+        f"- **ஸ்டாப்லாஸ் (SL):** ₹{stoploss:,.2f}"
+    )
+  elif spot_price > pdh and (spot_price - pdh) < 20 and rsi_val > 68:
+    st.warning(
+        f"⚠️ **PDH Liquidity Trap எச்சரிக்கை:** விலை ₹{pdh:,.2f}-ஐ தாண்டி அதிக"
+        " வாங்குதல் (Overbought) மண்டலத்தில் உள்ளது. திடீர் இறக்கம் வர வாய்ப்பு."
+    )
+  else:
+    st.info(
+        "⚖️ **நோ-டிரேட் மண்டலம் (No-Trade Zone / Range Bound):** சந்தை"
+        " குறிப்பிட்ட எல்லைக்குள் நகர்கிறது. தெளிவான பிரேக்அவுட் வரை காத்திருக்கவும்."
+    )
+
+  # ========== 3. LIVE ALERTS ==========
   st.markdown("---")
   st.subheader("🔔 Live Alerts")
   alerts = []
   if pd.notna(ema9_val) and pd.notna(ema21_val):
-    if ema9_val > ema21_val:
-      alerts.append(
-          f"🟢 **EMA Bullish** — EMA 9 (₹{ema9_val:,.2f}) > EMA 21"
-          f" (₹{ema21_val:,.2f})"
-      )
-    else:
-      alerts.append(
-          f"🔴 **EMA Bearish** — EMA 9 (₹{ema9_val:,.2f}) < EMA 21"
-          f" (₹{ema21_val:,.2f})"
-      )
+    alerts.append(
+        f"🟢 **EMA Bullish** — EMA 9 (₹{ema9_val:,.2f}) > EMA 21"
+        f" (₹{ema21_val:,.2f})"
+        if ema9_val > ema21_val
+        else f"🔴 **EMA Bearish** — EMA 9 (₹{ema9_val:,.2f}) < EMA 21"
+        f" (₹{ema21_val:,.2f})"
+    )
   if pd.notna(vwap_val):
-    if spot_price > vwap_val:
-      alerts.append(
-          f"🟢 **Above VWAP** — Price (₹{spot_price:,.2f}) > VWAP"
-          f" (₹{vwap_val:,.2f})"
-      )
-    else:
-      alerts.append(
-          f"🔴 **Below VWAP** — Price (₹{spot_price:,.2f}) < VWAP"
-          f" (₹{vwap_val:,.2f})"
-      )
+    alerts.append(
+        f"🟢 **Above VWAP** — Price (₹{spot_price:,.2f}) > VWAP"
+        f" (₹{vwap_val:,.2f})"
+        if spot_price > vwap_val
+        else f"🔴 **Below VWAP** — Price (₹{spot_price:,.2f}) < VWAP"
+        f" (₹{vwap_val:,.2f})"
+    )
   if pd.notna(rsi_val):
     if rsi_val >= 70:
       alerts.append(f"⚠️ **RSI Overbought** ({rsi_val:.1f})")
@@ -307,53 +376,73 @@ try:
     alerts.append(f"🚀 **PDH Breakout** — Above ₹{pdh:,.2f}")
   elif spot_price < pdl:
     alerts.append(f"🩸 **PDL Breakdown** — Below ₹{pdl:,.2f}")
-  if vix_val is not None and vix_val >= 18:
-    alerts.append(f"🚨 **Elevated VIX** — {vix_val:.2f}")
   for a in alerts:
     st.markdown(f"- {a}")
 
-  # ========== MARKET BREADTH ==========
+  # ========== 4. TOP 5 GAINERS & LOSERS (FORCE SIDE-BY-SIDE) ==========
   st.markdown("---")
   st.subheader("Market Breadth - Nifty 50")
-  breadth_stocks, breadth_err = get_nifty50_breadth()
+  breadth_stocks, _ = get_nifty50_breadth()
   if breadth_stocks:
     adv = sum(1 for s in breadth_stocks if s["Change%"] > 0.05)
     dec = sum(1 for s in breadth_stocks if s["Change%"] < -0.05)
-    avg_c = sum(s["Change%"] for s in breadth_stocks) / len(breadth_stocks)
     b1, b2, b3 = st.columns(3)
     b1.metric("Advances", adv)
     b2.metric("Declines", dec)
-    b3.metric("Avg Change", f"{avg_c:+.2f}%")
+    b3.metric(
+        "Avg Change",
+        f"{sum(s['Change%'] for s in breadth_stocks)/len(breadth_stocks):+.2f}%",
+    )
 
     ss = sorted(breadth_stocks, key=lambda x: x["Change%"], reverse=True)
-    g_col, l_col = st.columns(2)
-    with g_col:
-      st.markdown("🟢 **Top 5 Gainers**")
-      for s in ss[:5]:
-        st.write(f"**{s['Symbol']}**: ₹{s['LTP']:,.2f} (+{s['Change%']}%)")
-    with l_col:
-      st.markdown("🔴 **Top 5 Losers**")
-      for s in ss[-5:][::-1]:
-        st.write(f"**{s['Symbol']}**: ₹{s['LTP']:,.2f} ({s['Change%']}%)")
+    gainers_html = "".join([
+        f"<div style='border-bottom:1px solid #ddd; padding:3px"
+        f" 0;'><b>{s['Symbol']}</b><br><span"
+        f" style='font-size:11px;'>₹{s['LTP']:,.2f} <span"
+        f" style='color:#00b300;'>(+{s['Change%']}%)</span></span></div>"
+        for s in ss[:5]
+    ])
+    losers_html = "".join([
+        f"<div style='border-bottom:1px solid #ddd; padding:3px"
+        f" 0;'><b>{s['Symbol']}</b><br><span"
+        f" style='font-size:11px;'>₹{s['LTP']:,.2f} <span"
+        f" style='color:#cc0000;'>({s['Change%']}%)</span></span></div>"
+        for s in ss[-5:][::-1]
+    ])
 
-  # ========== SECTOR PERFORMANCE ==========
+    st.write(
+        f"""
+        <div style="border: 1px solid #333; border-radius: 6px; padding: 8px; font-family: monospace; background: #fff; margin-top: 8px;">
+            <div style="display: flex;">
+                <div style="flex: 1; padding: 4px; border-right: 1px solid #333;">
+                    <div style="font-weight: bold; color: #00b300; margin-bottom: 6px;">🟢 Top 5 Gainers</div>
+                    {gainers_html}
+                </div>
+                <div style="flex: 1; padding: 4px; padding-left: 8px;">
+                    <div style="font-weight: bold; color: #cc0000; margin-bottom: 6px;">🔴 Top 5 Losers</div>
+                    {losers_html}
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+  # ========== 5. SECTOR PERFORMANCE ==========
   st.markdown("---")
   st.subheader("Sector Performance")
-  sector_data = get_sector_data()
-  if sector_data:
-    cols = st.columns(len(sector_data))
-    for i, (name, pct) in enumerate(sector_data.items()):
+  sec_data = get_sector_data()
+  if sec_data:
+    cols = st.columns(len(sec_data))
+    for i, (name, pct) in enumerate(sec_data.items()):
       with cols[i]:
-        if pct >= 0:
-          st.success(f"{name}: +{pct:.2f}%")
-        else:
-          st.error(f"{name}: {pct:.2f}%")
+        st.success(f"{name}: +{pct:.2f}%") if pct >= 0 else st.error(
+            f"{name}: {pct:.2f}%"
+        )
 
-  # ========== OPTION CHAIN ==========
+  # ========== 6. OPTION CHAIN ==========
   st.markdown("---")
   st.subheader("Strike-wise Call vs Put (Estimated Model)")
-  st.caption("⚠️ இது மாதிரி மதிப்பீடு மட்டுமே; நேரடி NSE OI அல்ல.")
-
   atm = int(round(spot_price / 50) * 50)
   rows = []
   tot_call, tot_put = 0, 0
@@ -366,12 +455,11 @@ try:
     p_ltp = round(max(5.0, 175.0 - (diff * 45)), 2)
     tot_call += c_oi
     tot_put += p_oi
-    if p_oi > c_oi * 1.15:
-      sig = "🟢 Put Support"
-    elif c_oi > p_oi * 1.15:
-      sig = "🔴 Call Resistance"
-    else:
-      sig = "⚖️ Neutral"
+    sig = (
+        "🟢 Put Support"
+        if p_oi > c_oi * 1.15
+        else ("🔴 Call Resistance" if c_oi > p_oi * 1.15 else "⚖️ Neutral")
+    )
     rows.append({
         "Strike": f"₹{s:,}" + (" 🎯 ATM" if s == atm else ""),
         "Call OI": format_lakhs(c_oi),
@@ -383,22 +471,23 @@ try:
 
   pcr = tot_put / tot_call if tot_call > 0 else 0
   pa, pb, pc = st.columns(3)
-  if pcr > 1.2:
-    pa.metric("📊 PCR", f"{pcr:.2f}", "🟢 Bullish")
-  elif pcr < 0.8:
-    pa.metric("📊 PCR", f"{pcr:.2f}", "🔴 Bearish")
-  else:
-    pa.metric("📊 PCR", f"{pcr:.2f}", "⚖️ Neutral")
+  pa.metric(
+      "📊 PCR",
+      f"{pcr:.2f}",
+      (
+          "🟢 Bullish"
+          if pcr > 1.2
+          else ("🔴 Bearish" if pcr < 0.8 else "⚖️ Neutral")
+      ),
+  )
   pb.metric("🎯 ATM", f"₹{atm:,}")
   pc.metric("📍 Spot", f"₹{spot_price:,.2f}")
   st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
 
-  # ========== PAPER TRADING ==========
+  # ========== 7. PAPER TRADING ==========
   st.markdown("---")
   st.subheader("📝 Model-based Paper Trading")
-  st.caption("⚠️ விர்ச்சுவல் டிரேடிங் — real order போகாது.")
   p_col1, p_col2 = st.columns([1, 2])
-
   with p_col1:
     with st.form("open_trade_form"):
       pt_strike = st.selectbox(
@@ -408,14 +497,13 @@ try:
       lot_size = st.number_input("Lot Size", min_value=1, value=25)
       lots = st.number_input("Lots", min_value=1, value=1)
       pt_qty = int(lot_size * lots)
-      if pt_type == "CE":
-        est_p = round(
-            max(5.0, 180.0 + ((spot_price - pt_strike) / 50.0 * 45)), 2
-        )
-      else:
-        est_p = round(
-            max(5.0, 175.0 - ((spot_price - pt_strike) / 50.0 * 45)), 2
-        )
+      est_p = (
+          round(max(5.0, 180.0 + ((spot_price - pt_strike) / 50.0 * 45)), 2)
+          if pt_type == "CE"
+          else round(
+              max(5.0, 175.0 - ((spot_price - pt_strike) / 50.0 * 45)), 2
+          )
+      )
       st.write(f"Model Premium: **₹{est_p:,.2f}** | Units: **{pt_qty}**")
       submitted = st.form_submit_button("🚀 Place Model Trade")
     if submitted:
@@ -426,14 +514,15 @@ try:
     if st.session_state.paper_trades:
       t_rows = []
       for t in st.session_state.paper_trades:
-        if t["type"] == "CE":
-          cur_p = round(
-              max(5.0, 180.0 + ((spot_price - t["strike"]) / 50.0 * 45)), 2
-          )
-        else:
-          cur_p = round(
-              max(5.0, 175.0 - ((spot_price - t["strike"]) / 50.0 * 45)), 2
-          )
+        cur_p = (
+            round(
+                max(5.0, 180.0 + ((spot_price - t["strike"]) / 50.0 * 45)), 2
+            )
+            if t["type"] == "CE"
+            else round(
+                max(5.0, 175.0 - ((spot_price - t["strike"]) / 50.0 * 45)), 2
+            )
+        )
         pnl = (
             round((cur_p - t["entry"]) * t["qty"], 2)
             if t["status"] == "OPEN"
@@ -444,7 +533,7 @@ try:
             "Trade": f"{t['strike']} {t['type']}",
             "Entry": f"₹{t['entry']}",
             "Qty": t["qty"],
-            "LTP": f"₹{cur_p if t['status'] == 'OPEN' else t['exit']}",
+            "LTP": f"₹{cur_p if t['status']=='OPEN' else t['exit']}",
             "PnL": f"₹{pnl:+,.2f}",
             "Status": t["status"],
         })
@@ -458,25 +547,23 @@ try:
           closed = st.form_submit_button("❌ Close Trade")
         if closed:
           t_obj = next(t for t in open_t if t["id"] == c_id)
-          if t_obj["type"] == "CE":
-            c_ext = round(
-                max(5.0, 180.0 + ((spot_price - t_obj["strike"]) / 50.0 * 45)),
-                2,
-            )
-          else:
-            c_ext = round(
-                max(5.0, 175.0 - ((spot_price - t_obj["strike"]) / 50.0 * 45)),
-                2,
-            )
+          c_ext = (
+              round(
+                  max(5.0, 180.0 + ((spot_price - t_obj["strike"]) / 50.0 * 45)),
+                  2,
+              )
+              if t_obj["type"] == "CE"
+              else round(
+                  max(5.0, 175.0 - ((spot_price - t_obj["strike"]) / 50.0 * 45)),
+                  2,
+              )
+          )
           close_paper_trade(c_id, c_ext)
           st.rerun()
-    else:
-      st.info("செயலில் உள்ள டிரேடுகள் இல்லை.")
 
-  # ========== CHART ==========
+  # ========== 8. CHART & LEVELS ==========
   st.markdown("---")
   st.subheader("📈 NIFTY Intraday Chart - Price & VWAP")
-
   cdf = session_hist[["Close", "VWAP"]].copy().dropna(subset=["Close"])
   if not cdf.empty:
     chart_plot_df = pd.DataFrame({
@@ -485,7 +572,6 @@ try:
         "VWAP": cdf["VWAP"].values,
     }).set_index("Time")
     st.line_chart(chart_plot_df, height=400)
-    st.caption("Close Price vs Session VWAP")
 
     st.markdown("### 🎯 Key Pivots & Levels")
     lvl_tbl = pd.DataFrame([
@@ -497,34 +583,4 @@ try:
             "Zone": "Immediate Resistance",
         },
         {"Level": "TC", "Price": f"₹{TC:,.2f}", "Zone": "CPR Top"},
-        {"Level": "Pivot", "Price": f"₹{PP:,.2f}", "Zone": "Central Pivot"},
-        {"Level": "BC", "Price": f"₹{BC:,.2f}", "Zone": "CPR Bottom"},
-        {"Level": "S1", "Price": f"₹{S1:,.2f}", "Zone": "Immediate Support"},
-        {"Level": "S2", "Price": f"₹{S2:,.2f}", "Zone": "Major Support"},
-        {"Level": "PDL", "Price": f"₹{pdl:,.2f}", "Zone": "Support"},
-    ])
-    st.dataframe(lvl_tbl, hide_index=True, use_container_width=True)
-  else:
-    st.info("Chart data pending.")
-
-  # ========== TECHNICAL INDICATORS ==========
-  st.markdown("---")
-  st.subheader("📊 Technical Indicators")
-  st.write(f"🔹 **EMA 9:** ₹{ema9_val:,.2f} | 🔹 **EMA 21:** ₹{ema21_val:,.2f}")
-  st.write(f"🔹 **VWAP:** ₹{vwap_val:,.2f} | 🔹 **RSI (14):** {rsi_val:.2f}")
-
-  # ========== NEWS (BOTTOM) ==========
-  st.markdown("---")
-  st.subheader("🌐 நேரலை சந்தை செய்திகள் (Tamil News)")
-  for n in get_market_news():
-    st.write(n)
-
-  st.caption(
-      "Refreshed:"
-      f" {pd.Timestamp.now(tz='Asia/Kolkata').strftime('%H:%M:%S IST')}"
-  )
-
-except Exception as err:
-  st.error(f"பிழை: {err}")
-  st.stop()
-      
+        {"Le
