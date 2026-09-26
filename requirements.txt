@@ -4,5 +4,5 @@ yfinance
 pandas
 numpy
 plotly
-requests
 feedparser
+requests
