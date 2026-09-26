@@ -13,7 +13,7 @@ st.set_page_config(
     page_title="Nifty AI Pro - Monitoring Terminal", layout="wide"
 )
 
-# ஒவ்வொரு 30 விநாடிக்கும் பேஜ் தானாக ரீஃப்ரெஷ் ஆகும்
+# 30 விநாடிகளுக்கு ஒருமுறை தானாக புதுப்பிக்கும்
 st_autorefresh(interval=30 * 1000, key="nifty_pro_refresh")
 
 st.title("🦅 NIFTY 50 - Smart Money & Market Monitor")
@@ -70,7 +70,7 @@ def get_market_news():
     return fallback_news, str(e)
 
 
-# 4. குறியீடுகளின் சொந்த அமர்வைக் கண்டறியும் தன்னாட்சி முறை (Self-Session Aware Helper)
+# 4. குறியீடுகளின் சொந்த அமர்வைக் கண்டறியும் தன்னாட்சி முறை
 def get_autonomous_session_change(data):
   if data.empty:
     return None, None, None
@@ -588,7 +588,7 @@ try:
   ])
   levels_data["Time"] = chart_df["Time"].max() + pd.Timedelta(minutes=3)
 
-  # Auto-Zoom: 0-விலிருந்து போகாமல், வர்த்தக வரம்பை மட்டும் ஜூம் செய்ய
+  # Auto-Zoom: 0-விலிருந்து போகாமல் வர்த்தக வரம்பை மட்டும் ஜூம் செய்ய
   all_valid_prices = [
       p
       for p in (
@@ -617,10 +617,6 @@ try:
               title="Price (₹)",
               scale=alt.Scale(domain=[min_val, max_val], zero=False),
           ),
-          tooltip=[
-              alt.Tooltip("Time:T", title="Time", format="%d-%b %H:%M"),
-              alt.Tooltip("Close:Q", title="Price", format=",.2f"),
-          ],
       )
   )
 
@@ -633,5 +629,14 @@ try:
           y=alt.Y(
               "VWAP:Q", scale=alt.Scale(domain=[min_val, max_val], zero=False)
           ),
-          tooltip=[
-              alt.Tooltip("Ti
+      )
+  )
+
+  # 3. Current Price Dot Marker
+  latest_bar = chart_df.iloc[[-1]]
+  price_dot = (
+      alt.Chart(latest_bar)
+      .mark_point(color="#0052cc", filled=True, size=85, shape="circle")
+      .encode(
+          x=alt.X("Time:T"),
+          y=alt.
