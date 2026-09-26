@@ -115,21 +115,15 @@ try:
             for n in news:
                 st.write(n)
         
-        # 🌟 அட்வான்ஸ்டு ஜூம் செய்யப்பட்ட ஏரியா வரைபடம் (Fixed Scaling View)
+        # 🌟 பிக்ஸ் செய்யப்பட்ட இறுதிப் பகுதி (Auto-Scaled Native Line Chart)
         st.markdown("---")
         st.subheader("📈 NIFTY 50 - Live 5-Minute Close Trend Chart")
         
-        # கடைசி 60 கேண்டில்களின் க்ளோஸ் விலையை மட்டும் தனியாக எடுத்தல்
-        chart_df = pd.DataFrame(hist['Close'].tail(60))
-        chart_df.index = hist.index[-60:].strftime('%H:%M')
+        # கடைசி 60 புள்ளிகளின் க்ளோஸ் விலையை மட்டும் எடுத்தல்
+        chart_series = hist['Close'].tail(60)
         
-        # Y-Axis எல்லையை நிஃப்டியின் குறைந்தபட்ச மற்றும் அதிகபட்ச விலைக்குள் லாக் செய்தல்
-        min_y = float(chart_df['Close'].min() - 20)
-        max_y = float(chart_df['Close'].max() + 20)
-        
-        # சீரான வளைவுகளைக் காட்டும் அட்வான்ஸ்டு சார்ட் மெத்தட்
-    st.area_chart(chart_df, y_label="Nifty Price", use_container_width=True, y_min=min_y, y_max=max_y)
-
+        # எவ்வித எர்ரருமின்றி ஸ்ட்ரீம்லிட் தானாகவே விலைக்குத் தகுந்தாற்போல் சுருங்கி வளைவுகளைக் காட்டும்
+        st.line_chart(chart_series, use_container_width=True)
 
 except Exception as e:
     st.error(f"புதுப்பிப்பதில் சிறு சிக்கல்: {e}")
