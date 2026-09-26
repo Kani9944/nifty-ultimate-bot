@@ -150,8 +150,8 @@ def get_sector_data():
 @st.cache_data(ttl=300)
 def get_market_news():
   feeds = [
-      "https://tamil.goodreturns.in/rss/tamil-money-fb.xml",
-      "https://www.dinamani.com/rss/business.xml",
+      "https://tamil.goodreturns.in/rss/feeds/tamil-money-news-fb.xml",
+      "https://www.moneycontrol.com/rss/marketreports.xml",
       "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
   ]
   news = []
@@ -168,7 +168,7 @@ def get_market_news():
           break
     except Exception:
       continue
-  return news[:6] if news else ["🌐 சந்தை செய்திகள் தற்காலிகமாக கிடைக்கவில்லை."]
+  return news[:6] if news else ["🌐 வர்த்தகச் செய்திகள் தற்காலிகமாக கிடைக்கவில்லை."]
 
 
 try:
@@ -182,17 +182,16 @@ try:
     st.stop()
 
   hist.index = pd.to_datetime(hist.index)
-  hist.index = (
-      hist.index.tz_convert("Asia/Kolkata")
-      if hist.index.tz is not None
-      else hist.index.tz_localize("Asia/Kolkata")
-  )
+  if hist.index.tz is not None:
+    hist.index = hist.index.tz_convert("Asia/Kolkata")
+  else:
+    hist.index = hist.index.tz_localize("Asia/Kolkata")
+
   daily.index = pd.to_datetime(daily.index)
-  daily.index = (
-      daily.index.tz_convert("Asia/Kolkata")
-      if daily.index.tz is not None
-      else daily.index.tz_localize("Asia/Kolkata")
-  )
+  if daily.index.tz is not None:
+    daily.index = daily.index.tz_convert("Asia/Kolkata")
+  else:
+    daily.index = daily.index.tz_localize("Asia/Kolkata")
 
   today = pd.Timestamp.now(tz="Asia/Kolkata").date()
   session_date = (
@@ -213,11 +212,9 @@ try:
     st.stop()
 
   prev_day = prev_sessions.iloc[-1]
-  pdh, pdl, pdc = (
-      float(prev_day["High"]),
-      float(prev_day["Low"]),
-      float(prev_day["Close"]),
-  )
+  pdh = float(prev_day["High"])
+  pdl = float(prev_day["Low"])
+  pdc = float(prev_day["Close"])
 
   PP = (pdh + pdl + pdc) / 3
   BC = min((pdh + pdl) / 2, (2 * PP) - ((pdh + pdl) / 2))
@@ -248,7 +245,7 @@ try:
       else spot_price
   )
 
-  # ========== 1. TOP METRICS ==========
+  # ========== 1. TOP METRICS (SIDE-BY-SIDE MOBILE VIEW) ==========
   nd_str = f"{nifty_5m:+.2f}%" if nifty_5m is not None else "0.00%"
   bd_str = f"{bn_5m:+.2f}%" if bn_5m is not None else "0.00%"
   vd_str = f"{vix_5m:+.2f}%" if vix_5m is not None else "0.00%"
@@ -328,7 +325,7 @@ try:
     st.success(
         f"🟢 **BUY SIGNAL (Call Option சாதகம்)**\n\n- **காரணம்:** விலை CPR (TC)"
         f" மற்றும் VWAP-க்கு மேல் நிலைபெற்றுள்ளது. EMA 9 > EMA 21, RSI:"
-        f" {rsi_val:.1f}\n- **என்ட்ரி வரம்பு:** ₹{spot_price:,.2f} | **இலக்கு:**"
+        f" {rsi_val:.1f}\n- **என்ட்ரி:** ₹{spot_price:,.2f} | **இலக்கு:**"
         f" ₹{target:,.2f} | **ஸ்டாப்லாஸ்:** ₹{stoploss:,.2f}"
     )
   elif all(sell_conditions):
@@ -337,19 +334,13 @@ try:
     st.error(
         f"🔴 **SELL SIGNAL (Put Option சாதகம்)**\n\n- **காரணம்:** விலை CPR (BC)"
         f" மற்றும் VWAP-க்கு கீழ் உள்ளது. EMA 9 < EMA 21, RSI:"
-        f" {rsi_val:.1f}\n- **என்ட்ரி வரம்பு:** ₹{spot_price:,.2f} | **இலக்கு:**"
+        f" {rsi_val:.1f}\n- **என்ட்ரி:** ₹{spot_price:,.2f} | **இலக்கு:**"
         f" ₹{target:,.2f} | **ஸ்டாப்லாஸ்:** ₹{stoploss:,.2f}"
     )
   elif spot_price > pdh and (spot_price - pdh) < 20 and rsi_val > 68:
-    st.warning(
-        f"⚠️ **PDH Liquidity Trap:** விலை ₹{pdh:,.2f}-ஐ தாண்டி Overbought-ல்"
-        " உள்ளது. ஏமாற்றுப் பிரேக்அவுட் சாத்தியம்."
-    )
+    st.warning("⚠️ PDH Trap: Overbought-ல் ஏமாற்றுப் பிரேக்அவுட் சாத்தியம்.")
   else:
-    st.info(
-        "⚖️ **நோ-டிரேட் மண்டலம் (Range Bound):** சந்தை குறிப்பிட்ட எல்லைக்குள்"
-        " உள்ளது. தெளிவான பிரேக்அவுட் சிக்னல் வரும் வரை காத்திருக்கவும்."
-    )
+    st.info("⚖️ நோ-டிரேட் மண்டலம் (Range Bound): தெளிவான சிக்னல் வரை காத்திருக்கவும்.")
 
   # ========== 3. LIVE ALERTS ==========
   st.markdown("---")
@@ -365,8 +356,7 @@ try:
     )
   if pd.notna(vwap_val):
     alerts.append(
-        f"🟢 **Above VWAP** — Price ({spot_price:,.2f}) > VWAP"
-        f" ({vwap_val:,.2f})"
+        f"🟢 **Above VWAP** — Price ({spot_price:,.2f}) > VWAP ({vwap_val:,.2f})"
         if spot_price > vwap_val
         else f"🔴 **Below VWAP** — Price ({spot_price:,.2f}) < VWAP"
         f" ({vwap_val:,.2f})"
@@ -570,35 +560,44 @@ try:
           close_paper_trade(c_id, c_ext)
           st.rerun()
 
-  # ========== 8. CHART (PLOTLY INTUITIVE VIEW) ==========
+  # ========== 8. CHART WITH CPR & ANALYSIS (PLOTLY LOCKED RANGE) ==========
   st.markdown("---")
-  st.subheader("📈 NIFTY Intraday Chart - Price & VWAP")
+  st.subheader("📈 NIFTY Intraday Chart - Price, VWAP & CPR அனாலிசிஸ்")
   cdf = session_hist[["Close", "VWAP"]].copy().dropna(subset=["Close"])
   if not cdf.empty:
     fig = go.Figure()
+
+    # 1. Price Line
     fig.add_trace(
         go.Scatter(
             x=cdf.index,
             y=cdf["Close"],
             mode="lines",
             name="Nifty Price",
-            line=dict(color="#0052cc", width=2),
+            line=dict(color="#0052cc", width=2.5),
         )
     )
+
+    # 2. VWAP Line
     fig.add_trace(
         go.Scatter(
             x=cdf.index,
             y=cdf["VWAP"],
             mode="lines",
             name="VWAP",
-            line=dict(color="#ff9900", width=1.5, dash="dash"),
+            line=dict(color="#ff9900", width=1.8, dash="dash"),
         )
     )
 
-    # Dynamic Padding for Y-Axis
-    min_val = min(cdf["Close"].min(), cdf["VWAP"].min()) - 15
-    max_val = max(cdf["Close"].max(), cdf["VWAP"].max()) + 15
-
-    fig.update_layout(
-        height=380,
-        margin=dic
+    # 3. CPR & Pivots Analysis Lines
+    fig.add_hline(
+        y=TC,
+        line_dash="dot",
+        line_color="#66b3ff",
+        annotation_text=f"TC: ₹{TC:,.0f}",
+    )
+    fig.add_hline(
+        y=PP,
+        line_dash="dash",
+        line_color="#0066cc",
+        annotation_text=f"Pivot
