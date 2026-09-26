@@ -211,17 +211,17 @@ try:
     st.stop()
 
   prev_day = prev_sessions.iloc[-1]
-  pdh, pdl, pdc = (
-      float(prev_day["High"]),
-      float(prev_day["Low"]),
-      float(prev_day["Close"]),
-  )
+  pdh = float(prev_day["High"])
+  pdl = float(prev_day["Low"])
+  pdc = float(prev_day["Close"])
 
   PP = (pdh + pdl + pdc) / 3
   BC = min((pdh + pdl) / 2, (2 * PP) - ((pdh + pdl) / 2))
   TC = max((pdh + pdl) / 2, (2 * PP) - ((pdh + pdl) / 2))
-  R1, S1 = (2 * PP) - pdl, (2 * PP) - pdh
-  R2, S2 = PP + (pdh - pdl), PP - (pdh - pdl)
+  R1 = (2 * PP) - pdl
+  S1 = (2 * PP) - pdh
+  R2 = PP + (pdh - pdl)
+  S2 = PP - (pdh - pdl)
 
   typ = (session_hist["High"] + session_hist["Low"] + session_hist["Close"]) / 3
   cv = session_hist["Volume"].cumsum()
@@ -248,49 +248,25 @@ try:
   )
 
   # ========== TOP METRICS ==========
-  nd = f"{nifty_5m:+.2f}% (5m)" if nifty_5m is not None else ""
-  bd = f"{bn_5m:+.2f}% (5m)" if bn_5m is not None else ""
-  vd = f"{vix_5m:+.2f}% (5m)" if vix_5m is not None else ""
-  nc = "#00b300" if (nifty_5m or 0) >= 0 else "#cc0000"
-  bc = "#00b300" if (bn_5m or 0) >= 0 else "#cc0000"
-  vc = "#cc0000" if (vix_5m or 0) >= 0 else "#00b300"
-  bn_disp = f"₹{bn_price:,.2f}" if bn_price is not None else "N/A"
-  vix_disp = f"{vix_val:.2f}" if vix_val is not None else "N/A"
-
-  st.markdown(
-      f"""
-        <div style="display:flex; gap:8px; margin-bottom:8px;">
-          <div style="flex:1; padding:10px; background:#f8f9fa; border-radius:8px; border-left:4px solid #0052cc;">
-            <div style="font-size:12px; color:#666;">NIFTY 50</div>
-            <div style="font-size:20px; font-weight:bold;">₹{spot_price:,.2f}</div>
-            <div style="font-size:12px; color:{nc};">{nd}</div>
-          </div>
-          <div style="flex:1; padding:10px; background:#f8f9fa; border-radius:8px; border-left:4px solid #0052cc;">
-            <div style="font-size:12px; color:#666;">BANK NIFTY</div>
-            <div style="font-size:20px; font-weight:bold;">{bn_disp}</div>
-            <div style="font-size:12px; color:{bc};">{bd}</div>
-          </div>
-        </div>
-        <div style="display:flex; justify-content:center; margin-bottom:8px;">
-          <div style="padding:10px 30px; background:#f8f9fa; border-radius:8px; border-left:4px solid #ff9900; text-align:center;">
-            <div style="font-size:12px; color:#666;">INDIA VIX</div>
-            <div style="font-size:20px; font-weight:bold;">{vix_disp}</div>
-            <div style="font-size:12px; color:{vc};">{vd}</div>
-          </div>
-        </div>
-        <div style="display:flex; gap:8px;">
-          <div style="flex:1; padding:10px; background:#f8f9fa; border-radius:8px; border-left:4px solid #cc0000;">
-            <div style="font-size:12px; color:#666;">PDH</div>
-            <div style="font-size:18px; font-weight:bold;">₹{pdh:,.2f}</div>
-          </div>
-          <div style="flex:1; padding:10px; background:#f8f9fa; border-radius:8px; border-left:4px solid #00b300;">
-            <div style="font-size:12px; color:#666;">PDL</div>
-            <div style="font-size:18px; font-weight:bold;">₹{pdl:,.2f}</div>
-          </div>
-        </div>
-        """,
-      unsafe_allow_html=True,
+  top_c1, top_c2, top_c3, top_c4, top_c5 = st.columns(5)
+  top_c1.metric(
+      "NIFTY 50",
+      f"₹{spot_price:,.2f}",
+      f"{nifty_5m:+.2f}% (5m)" if nifty_5m is not None else None,
   )
+  top_c2.metric(
+      "BANK NIFTY",
+      f"₹{bn_price:,.2f}" if bn_price is not None else "N/A",
+      f"{bn_5m:+.2f}% (5m)" if bn_5m is not None else None,
+  )
+  top_c3.metric(
+      "INDIA VIX",
+      f"{vix_val:.2f}" if vix_val is not None else "N/A",
+      f"{vix_5m:+.2f}% (5m)" if vix_5m is not None else None,
+      delta_color="inverse",
+  )
+  top_c4.metric("PDH", f"₹{pdh:,.2f}")
+  top_c5.metric("PDL", f"₹{pdl:,.2f}")
 
   # ========== LIVE ALERTS ==========
   st.markdown("---")
@@ -350,30 +326,15 @@ try:
     b3.metric("Avg Change", f"{avg_c:+.2f}%")
 
     ss = sorted(breadth_stocks, key=lambda x: x["Change%"], reverse=True)
-    gh = "".join(
-        f'<div style="padding:5px 0; border-bottom:1px solid #eee;">'
-        f'<b>{s["Symbol"]}</b><br><span style="font-size:12px;">'
-        f'₹{s["LTP"]:,.2f} <span'
-        f' style="color:#00b300;">({s["Change%"]:+.2f}%)</span></span></div>'
-        for s in ss[:5]
-    )
-    lh = "".join(
-        f'<div style="padding:5px 0; border-bottom:1px solid #eee;">'
-        f'<b>{s["Symbol"]}</b><br><span style="font-size:12px;">'
-        f'₹{s["LTP"]:,.2f} <span'
-        f' style="color:#cc0000;">({s["Change%"]:+.2f}%)</span></span></div>'
-        for s in ss[-5:][::-1]
-    )
-    st.markdown(
-        f'<div style="display:flex; gap:10px;">'
-        f'<div style="flex:1;"><div style="font-size:15px; font-weight:bold;'
-        ' color:#00b300; margin-bottom:6px;">🟢 Top 5'
-        f' Gainers</div>{gh}</div>'
-        f'<div style="flex:1;"><div style="font-size:15px; font-weight:bold;'
-        ' color:#cc0000; margin-bottom:6px;">🔴 Top 5 Losers</div>{lh}</div>'
-        f"</div>",
-        unsafe_allow_html=True,
-    )
+    g_col, l_col = st.columns(2)
+    with g_col:
+      st.markdown("🟢 **Top 5 Gainers**")
+      for s in ss[:5]:
+        st.write(f"**{s['Symbol']}**: ₹{s['LTP']:,.2f} (+{s['Change%']}%)")
+    with l_col:
+      st.markdown("🔴 **Top 5 Losers**")
+      for s in ss[-5:][::-1]:
+        st.write(f"**{s['Symbol']}**: ₹{s['LTP']:,.2f} ({s['Change%']}%)")
 
   # ========== SECTOR PERFORMANCE ==========
   st.markdown("---")
@@ -383,9 +344,10 @@ try:
     cols = st.columns(len(sector_data))
     for i, (name, pct) in enumerate(sector_data.items()):
       with cols[i]:
-        st.success(f"{name}: +{pct:.2f}%") if pct >= 0 else st.error(
-            f"{name}: {pct:.2f}%"
-        )
+        if pct >= 0:
+          st.success(f"{name}: +{pct:.2f}%")
+        else:
+          st.error(f"{name}: {pct:.2f}%")
 
   # ========== OPTION CHAIN ==========
   st.markdown("---")
@@ -517,13 +479,13 @@ try:
 
   cdf = session_hist[["Close", "VWAP"]].copy().dropna(subset=["Close"])
   if not cdf.empty:
-    cdf.index = pd.to_datetime(cdf.index)
-    if cdf.index.tz is not None:
-      cdf.index = cdf.index.tz_convert("Asia/Kolkata")
-    else:
-      cdf.index = cdf.index.tz_localize("Asia/Kolkata")
-    st.line_chart(cdf[["Close", "VWAP"]], height=400)
-    st.caption("🔵 Close Price | 🔴 VWAP")
+    chart_plot_df = pd.DataFrame({
+        "Time": cdf.index.strftime("%H:%M"),
+        "Close": cdf["Close"].values,
+        "VWAP": cdf["VWAP"].values,
+    }).set_index("Time")
+    st.line_chart(chart_plot_df, height=400)
+    st.caption("Close Price vs Session VWAP")
 
     st.markdown("### 🎯 Key Pivots & Levels")
     lvl_tbl = pd.DataFrame([
@@ -565,4 +527,4 @@ try:
 except Exception as err:
   st.error(f"பிழை: {err}")
   st.stop()
-    
+      
