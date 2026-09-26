@@ -239,4 +239,8 @@ try:
 
 except Exception as e:
   st.error(f"புதுப்பிப்பதில் சிறு சிக்கல்: {e}")
-    
+    from streamlit_autorefresh import st_autorefresh
+
+# ஒவ்வொரு 30 வினாடிகளுக்கும் பேஜ் தானாக ரீஃப்ரெஷ் ஆகும் (30000 மில்லிசெகண்ட்ஸ்)
+st_autorefresh(interval=30 * 1000, key="nifty_refresh")
+
