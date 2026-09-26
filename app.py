@@ -1,4 +1,4 @@
-வசதி
+import streamlit as st
 import yfinance as yf
 import pandas as pd
 import ta
@@ -106,13 +106,10 @@ try:
             for n in news:
                 st.write(n)
         
-        # 🌟 புதிய வரைபடப் பகுதி (Live Chart Section)
+        # 🌟 புதிய வரைபடப் பகுதி
         st.markdown("---")
         st.subheader("📈 NIFTY 50 - Live 5-Minute Close Trend Chart")
         st.line_chart(hist['Close'].tail(100))
 
 except Exception as e:
     st.error(f"புதுப்பிப்பதில் சிறு சிக்கல்: {e}")
-    
-• சந்தையின் போக்கைக் காட்டும் ஒரு லைவ் வரைபடத்தை (Candlestick / Line Chart) வசதிகள் சேர்க்க வேண்டுமா?
-• சந்தையின் போக்கைக் காட்டும் ஒரு லைவ் வரைபடத்தை (Candlestick / Line Chart) இந்த வெப்சைட்டின் கீழ் பகுதியிலேயே இணைக்கலாமா
