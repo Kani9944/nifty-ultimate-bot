@@ -4,6 +4,5 @@ yfinance
 pandas
 numpy
 altair
-ta
-feedparser
 requests
+feedparser
