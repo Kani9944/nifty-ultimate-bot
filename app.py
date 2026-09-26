@@ -244,38 +244,64 @@ try:
         else spot_price
     )
 
-    # ============ TOP METRICS ============
-    # Row 1: Nifty | Bank Nifty
-    r1c1, r1c2 = st.columns(2)
-    with r1c1:
-        st.metric(
-            "NIFTY 50",
-            f"₹{spot_price:,.2f}",
-            f"{nifty_5m_change:+.2f}% (5m)" if nifty_5m_change is not None else None,
-        )
-    with r1c2:
-        st.metric(
-            "BANK NIFTY",
-            f"₹{bn_price:,.2f}" if bn_price is not None else "N/A",
-            f"{bn_5m_change:+.2f}% (5m)" if bn_5m_change is not None else None,
-        )
+    # ============ TOP METRICS (Force Side-by-Side) ============
+    nifty_delta = f"{nifty_5m_change:+.2f}% (5m)" if nifty_5m_change is not None else ""
+    bn_delta = f"{bn_5m_change:+.2f}% (5m)" if bn_5m_change is not None else ""
+    vix_delta = f"{vix_5m_change:+.2f}% (5m)" if vix_5m_change is not None else ""
 
-    # Row 2: India VIX (நடுவில்)
-    r2c1, r2c2, r2c3 = st.columns([1, 2, 1])
-    with r2c2:
-        st.metric(
-            "INDIA VIX",
-            f"{vix_val:.2f}" if vix_val is not None else "N/A",
-            f"{vix_5m_change:+.2f}% (5m)" if vix_5m_change is not None else None,
-            delta_color="inverse",
-        )
+    nifty_color = "#00b300" if (nifty_5m_change or 0) >= 0 else "#cc0000"
+    bn_color = "#00b300" if (bn_5m_change or 0) >= 0 else "#cc0000"
+    vix_color = "#cc0000" if (vix_5m_change or 0) >= 0 else "#00b300"
 
-    # Row 3: PDH | PDL
-    r3c1, r3c2 = st.columns(2)
-    with r3c1:
-        st.metric("PDH", f"₹{pdh:,.2f}")
-    with r3c2:
-        st.metric("PDL", f"₹{pdl:,.2f}")
+    bn_disp = f"₹{bn_price:,.2f}" if bn_price is not None else "N/A"
+    vix_disp = f"{vix_val:.2f}" if vix_val is not None else "N/A"
+
+    st.markdown(
+        f"""
+        <div style="display:flex; gap:8px; flex-wrap:nowrap; margin-bottom:8px;">
+          <div style="flex:1; padding:10px; background:#f8f9fa; border-radius:8px; border-left:4px solid #0052cc;">
+            <div style="font-size:12px; color:#666;">NIFTY 50</div>
+            <div style="font-size:20px; font-weight:bold;">₹{spot_price:,.2f}</div>
+            <div style="font-size:12px; color:{nifty_color};">{nifty_delta}</div>
+          </div>
+          <div style="flex:1; padding:10px; background:#f8f9fa; border-radius:8px; border-left:4px solid #0052cc;">
+            <div style="font-size:12px; color:#666;">BANK NIFTY</div>
+            <div style="font-size:20px; font-weight:bold;">{bn_disp}</div>
+            <div style="font-size:12px; color:{bn_color};">{bn_delta}</div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        f"""
+        <div style="display:flex; justify-content:center; margin-bottom:8px;">
+          <div style="padding:10px 30px; background:#f8f9fa; border-radius:8px; border-left:4px solid #ff9900; text-align:center;">
+            <div style="font-size:12px; color:#666;">INDIA VIX</div>
+            <div style="font-size:20px; font-weight:bold;">{vix_disp}</div>
+            <div style="font-size:12px; color:{vix_color};">{vix_delta}</div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        f"""
+        <div style="display:flex; gap:8px; flex-wrap:nowrap;">
+          <div style="flex:1; padding:10px; background:#f8f9fa; border-radius:8px; border-left:4px solid #cc0000;">
+            <div style="font-size:12px; color:#666;">PDH</div>
+            <div style="font-size:18px; font-weight:bold;">₹{pdh:,.2f}</div>
+          </div>
+          <div style="flex:1; padding:10px; background:#f8f9fa; border-radius:8px; border-left:4px solid #00b300;">
+            <div style="font-size:12px; color:#666;">PDL</div>
+            <div style="font-size:18px; font-weight:bold;">₹{pdl:,.2f}</div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     # ============ LIVE ALERTS ============
     st.markdown("---")
@@ -349,24 +375,39 @@ try:
 
         sorted_stocks = sorted(breadth_stocks, key=lambda x: x["Change%"], reverse=True)
 
-        # Top 5 side by side
-        g_col, l_col = st.columns(2)
-        with g_col:
-            st.markdown("### 🟢 Top 5 Gainers")
-            for s in sorted_stocks[:5]:
-                st.markdown(
-                    f"**{s['Symbol']}**<br>"
-                    f"₹{s['LTP']:,.2f} ({s['Change%']:+.2f}%)",
-                    unsafe_allow_html=True,
-                )
-        with l_col:
-            st.markdown("### 🔴 Top 5 Losers")
-            for s in sorted_stocks[-5:][::-1]:
-                st.markdown(
-                    f"**{s['Symbol']}**<br>"
-                    f"₹{s['LTP']:,.2f} ({s['Change%']:+.2f}%)",
-                    unsafe_allow_html=True,
-                )
+        # Top 5 side by side (Force)
+        gainers_html = "".join(
+            f'<div style="padding:5px 0; border-bottom:1px solid #eee;">'
+            f'<b>{s["Symbol"]}</b><br>'
+            f'<span style="font-size:12px;">₹{s["LTP"]:,.2f} '
+            f'<span style="color:#00b300;">({s["Change%"]:+.2f}%)</span></span>'
+            f'</div>'
+            for s in sorted_stocks[:5]
+        )
+        losers_html = "".join(
+            f'<div style="padding:5px 0; border-bottom:1px solid #eee;">'
+            f'<b>{s["Symbol"]}</b><br>'
+            f'<span style="font-size:12px;">₹{s["LTP"]:,.2f} '
+            f'<span style="color:#cc0000;">({s["Change%"]:+.2f}%)</span></span>'
+            f'</div>'
+            for s in sorted_stocks[-5:][::-1]
+        )
+
+        st.markdown(
+            f"""
+            <div style="display:flex; gap:10px; flex-wrap:nowrap;">
+              <div style="flex:1;">
+                <div style="font-size:15px; font-weight:bold; color:#00b300; margin-bottom:6px;">🟢 Top 5 Gainers</div>
+                {gainers_html}
+              </div>
+              <div style="flex:1;">
+                <div style="font-size:15px; font-weight:bold; color:#cc0000; margin-bottom:6px;">🔴 Top 5 Losers</div>
+                {losers_html}
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     # ============ SECTOR PERFORMANCE ============
     st.markdown("---")
@@ -381,7 +422,7 @@ try:
                 else:
                     st.error(f"{name}: {pct:.2f}%")
 
-    # ============ OPTION CHAIN (MODEL) ============
+    # ============ OPTION CHAIN ============
     st.markdown("---")
     st.subheader("Strike-wise Call vs Put (Estimated Model)")
     st.caption("⚠️ இது மாதிரி மதிப்பீடு மட்டுமே; நேரடி NSE OI அல்ல.")
@@ -499,47 +540,4 @@ try:
 
     if not chart_df.empty:
         chart_df.index = pd.to_datetime(chart_df.index)
-        if chart_df.index.tz is not None:
-            chart_df.index = chart_df.index.tz_convert("Asia/Kolkata")
-        else:
-            chart_df.index = chart_df.index.tz_localize("Asia/Kolkata")
-
-        st.line_chart(chart_df[["Close", "VWAP"]], height=400)
-        st.caption("🔵 Close Price | 🔴 VWAP")
-
-        st.markdown("### 🎯 Key Pivots & Levels")
-        lvl_tbl = pd.DataFrame([
-            {"Level": "PDH", "Price": f"₹{pdh:,.2f}", "Zone": "Resistance"},
-            {"Level": "R2", "Price": f"₹{R2:,.2f}", "Zone": "Major Resistance"},
-            {"Level": "R1", "Price": f"₹{R1:,.2f}", "Zone": "Immediate Resistance"},
-            {"Level": "TC", "Price": f"₹{TC:,.2f}", "Zone": "CPR Top"},
-            {"Level": "Pivot", "Price": f"₹{PP:,.2f}", "Zone": "Central Pivot"},
-            {"Level": "BC", "Price": f"₹{BC:,.2f}", "Zone": "CPR Bottom"},
-            {"Level": "S1", "Price": f"₹{S1:,.2f}", "Zone": "Immediate Support"},
-            {"Level": "S2", "Price": f"₹{S2:,.2f}", "Zone": "Major Support"},
-            {"Level": "PDL", "Price": f"₹{pdl:,.2f}", "Zone": "Support"},
-        ])
-        st.dataframe(lvl_tbl, hide_index=True, use_container_width=True)
-    else:
-        st.info("Chart data pending.")
-
-    # ============ TECHNICAL INDICATORS ============
-    st.markdown("---")
-    st.subheader("📊 Technical Indicators")
-    st.write(f"🔹 **EMA 9:** ₹{ema9_val:,.2f} | 🔹 **EMA 21:** ₹{ema21_val:,.2f}")
-    st.write(f"🔹 **VWAP:** ₹{vwap_val:,.2f} | 🔹 **RSI (14):** {rsi_val:.2f}")
-
-    # ============ NEWS (BOTTOM) ============
-    st.markdown("---")
-    st.subheader("🌐 நேரலை சந்தை செய்திகள் (Tamil News)")
-    for n in get_market_news():
-        st.write(n)
-
-    st.caption(
-        f"Dashboard refreshed: "
-        f"{pd.Timestamp.now(tz='Asia/Kolkata').strftime('%H:%M:%S IST')}"
-    )
-
-except Exception as err:
-    st.error(f"பிழை விவரம்: {err}")
-    st.stop()
+        if chart_df.index.tz is n
