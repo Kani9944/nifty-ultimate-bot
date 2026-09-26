@@ -243,4 +243,5 @@ except Exception as e:
 
 # ஒவ்வொரு 30 வினாடிகளுக்கும் பேஜ் தானாக ரீஃப்ரெஷ் ஆகும் (30000 மில்லிசெகண்ட்ஸ்)
 st_autorefresh(interval=30 * 1000, key="nifty_refresh")
+from streamlit_autorefresh import st_autorefresh
 
