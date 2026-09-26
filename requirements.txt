@@ -3,6 +3,6 @@ streamlit-autorefresh
 yfinance
 pandas
 numpy
-altair
+plotly
 requests
 feedparser
