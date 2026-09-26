@@ -1,4 +1,4 @@
-jiimport altair as alt
+import altair as alt
 import feedparser
 import numpy as np
 import pandas as pd
