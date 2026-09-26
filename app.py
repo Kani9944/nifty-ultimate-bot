@@ -448,7 +448,9 @@ with e3:
         "Note": "Nifty Snapshot",
     }])
     
-        summary_df,
+to_csv_download(
+    summary_df,
     "nifty_snapshot.csv",
     "Daily Snapshot CSV",
 )
+    
