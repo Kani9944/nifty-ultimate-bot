@@ -383,7 +383,8 @@ try:
   )
   pb.metric("🎯 Model ATM Reference", f"₹{atm:,}")
   pc.metric("📍 Nifty Spot", f"₹{spot_price:,.2f}")
-  st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+  opt_df = pd.DataFrame(rows)
+  st.dataframe(opt_df, hide_index=True, use_container_width=True)
 
   # Paper Trading
   st.markdown("---")
@@ -489,153 +490,58 @@ try:
     for n in get_market_news():
       st.write(n)
 
-  # Chart Section
+  # Chart Section (Ultra-Safe Native Line Chart)
   st.markdown("---")
-  st.subheader("📈 NIFTY Intraday Chart - Price / VWAP / CPR")
+  st.subheader("📈 NIFTY Intraday Chart - Price & VWAP")
 
-  chart_data = pd.DataFrame({
-      "Time": session_hist.index,
-      "Close": session_hist["Close"].values,
-      "VWAP": session_hist["VWAP"].values,
-  }).dropna(subset=["Close"])
-  chart_data = chart_data[chart_data["Close"] > 0].copy()
+  chart_df = session_hist[["Close", "VWAP"]].copy().dropna(subset=["Close"])
+  if not chart_df.empty:
+    chart_df.index = chart_df.index.strftime("%H:%M")
+    st.line_chart(chart_df[["Close", "VWAP"]], height=400)
+    st.caption("🔵 Close Price | 🔴 VWAP")
 
-  if chart_data.empty:
-    st.warning("Chart data unavailable.")
+    # Levels Table
+    st.markdown("### 🎯 Key Pivots & Resistance/Support Levels")
+    lvl_tbl = pd.DataFrame([{
+        "Level": "PDH",
+        "Price": f"₹{pdh:,.2f}",
+        "Zone": "Resistance",
+    }, {
+        "Level": "R2",
+        "Price": f"₹{R2:,.2f}",
+        "Zone": "Major Resistance",
+    }, {
+        "Level": "R1",
+        "Price": f"₹{R1:,.2f}",
+        "Zone": "Immediate Resistance",
+    }, {
+        "Level": "TC",
+        "Price": f"₹{TC:,.2f}",
+        "Zone": "CPR Top",
+    }, {
+        "Level": "Pivot",
+        "Price": f"₹{PP:,.2f}",
+        "Zone": "Central Pivot",
+    }, {
+        "Level": "BC",
+        "Price": f"₹{BC:,.2f}",
+        "Zone": "CPR Bottom",
+    }, {
+        "Level": "S1",
+        "Price": f"₹{S1:,.2f}",
+        "Zone": "Immediate Support",
+    }, {
+        "Level": "S2",
+        "Price": f"₹{S2:,.2f}",
+        "Zone": "Major Support",
+    }, {
+        "Level": "PDL",
+        "Price": f"₹{pdl:,.2f}",
+        "Zone": "Support",
+    }])
+    st.dataframe(lvl_tbl, hide_index=True, use_container_width=True)
   else:
-    c_start = chart_data["Time"].min()
-    c_end = chart_data["Time"].max() + pd.Timedelta(minutes=25)
-    l_x = chart_data["Time"].max() + pd.Timedelta(minutes=3)
-
-    ldf = pd.DataFrame([
-        {"Level": "PDH", "Value": pdh, "Color": "#cc0000", "LX": l_x},
-        {"Level": "R1", "Value": R1, "Color": "#ff6666", "LX": l_x},
-        {"Level": "TC", "Value": TC, "Color": "#66b3ff", "LX": l_x},
-        {"Level": "Pivot", "Value": PP, "Color": "#0066cc", "LX": l_x},
-        {"Level": "BC", "Value": BC, "Color": "#3399ff", "LX": l_x},
-        {"Level": "S1", "Value": S1, "Color": "#66cc66", "LX": l_x},
-        {"Level": "PDL", "Value": pdl, "Color": "#009900", "LX": l_x},
-    ])
-
-    all_v = [
-        float(v)
-        for v in (
-            chart_data["Close"].tolist()
-            + chart_data["VWAP"].dropna().tolist()
-            + ldf["Value"].tolist()
-        )
-        if pd.notna(v) and np.isfinite(v) and (spot_price - 400) <= v <= (spot_price + 400)
-    ]
-    if all_v:
-      mn, mx = min(all_v), max(all_v)
-      pad = max(25.0, (mx - mn) * 0.10)
-      y_min, y_max = float(mn - pad), float(mx + pad)
-    else:
-      y_min, y_max = float(spot_price - 250), float(spot_price + 250)
-
-    x_scale = alt.Scale(domain=[c_start, c_end])
-    y_scale = alt.Scale(
-        domain=[y_min, y_max], clamp=True, zero=False, nice=False, padding=0
-    )
-
-    p_line = (
-        alt.Chart(chart_data)
-        .mark_line(color="#0052cc", strokeWidth=2.5)
-        .encode(
-            x=alt.X(
-                "Time:T",
-                title="Time (IST)",
-                axis=alt.Axis(format="%H:%M", tickMinStep=300000),
-                scale=x_scale,
-            ),
-            y=alt.Y("Close:Q", title="Price (₹)", scale=y_scale),
-        )
-    )
-
-    v_line = (
-        alt.Chart(chart_data.dropna(subset=["VWAP"]))
-        .mark_line(color="#ff9900", strokeWidth=2.0, strokeDash=[3, 3])
-        .encode(
-            x=alt.X("Time:T", scale=x_scale),
-            y=alt.Y("VWAP:Q", scale=y_scale),
-        )
-    )
-
-    c_box = (
-        alt.Chart(
-            pd.DataFrame([{"_S": c_start, "_E": c_end, "_L": BC, "_U": TC}])
-        )
-        .mark_rect(color="#9ecae1", opacity=0.15)
-        .encode(
-            x=alt.X("_S:T", scale=x_scale),
-            x2="_E:T",
-            y=alt.Y("_L:Q", scale=y_scale),
-            y2="_U:Q",
-        )
-    )
-
-    rules = (
-        alt.Chart(ldf)
-        .mark_rule(strokeDash=[4, 4], strokeWidth=1.2)
-        .encode(
-            y=alt.Y("Value:Q", scale=y_scale),
-            color=alt.Color("Color:N", scale=None, legend=None),
-        )
-    )
-
-    lbls = (
-        alt.Chart(ldf)
-        .mark_text(align="left", dx=4, dy=-3, fontSize=10, fontWeight="bold")
-        .encode(
-            x=alt.X("LX:T", scale=x_scale),
-            y=alt.Y("Value:Q", scale=y_scale),
-            text="Level:N",
-            color=alt.Color("Color:N", scale=None, legend=None),
-        )
-    )
-
-    dot = (
-        alt.Chart(chart_data.tail(1))
-        .mark_point(color="#0052cc", filled=True, size=80, shape="circle")
-        .encode(
-            x=alt.X("Time:T", scale=x_scale),
-            y=alt.Y("Close:Q", scale=y_scale),
-        )
-    )
-
-    ltp = (
-        alt.Chart(
-            pd.DataFrame([{
-                "Time": l_x,
-                "Close": spot_price,
-                "Label": f"LTP ₹{spot_price:,.2f}",
-            }])
-        )
-        .mark_text(
-            align="left",
-            dx=4,
-            dy=14,
-            fontSize=11,
-            fontWeight="bold",
-            color="#cc0000",
-        )
-        .encode(
-            x=alt.X("Time:T", scale=x_scale),
-            y=alt.Y("Close:Q", scale=y_scale),
-            text="Label:N",
-        )
-    )
-
-    st.altair_chart(
-        (c_box + rules + v_line + p_line + dot + lbls + ltp).properties(
-            height=460
-        ),
-        use_container_width=True,
-    )
-    st.caption(
-        "🔵 Price | 🟠 Session VWAP | 🔴 PDH/R1/R2 | 🔵 CPR (TC/Pivot/BC) | 🟢"
-        " S1/S2/PDL | 🔴 LTP"
-    )
+    st.info("Chart data pending.")
 
 except Exception as err:
   st.error(f"பிழை விவரம்: {err}")
