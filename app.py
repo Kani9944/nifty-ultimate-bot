@@ -448,9 +448,17 @@ with e3:
         "Note": "Nifty Snapshot",
     }])
     
-to_csv_download(
-    summary_df,
-    "nifty_snapshot.csv",
-    "Daily Snapshot CSV",
-)
+with e3:
+    summary_df = pd.DataFrame([{
+        "Time": pd.Timestamp.now(
+            tz="Asia/Kolkata"
+        ).strftime("%Y-%m-%d %H:%M"),
+        "Note": "Nifty Snapshot",
+    }])
+    to_csv_download(
+        summary_df,
+        "nifty_snapshot.csv",
+        "Daily Snapshot CSV",
+    )
+
     
