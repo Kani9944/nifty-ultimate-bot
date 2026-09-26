@@ -264,25 +264,32 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ===== 2. STRATEGY =====
+# ===== 2. RULE-BASED MARKET STRUCTURE =====
 st.markdown("---")
-st.subheader("நேரலை டிரேடிங் ஸ்ட்ராடஜி (Strategy Signal)")
+st.subheader("Rule-based Market Structure")
+st.caption("இது rule-based technical alignment மட்டுமே; trading recommendation அல்ல.")
 
 buy_cond = [spot_price > TC, spot_price > vwap_val, ema9_val > ema21_val, rsi_val >= 55]
 sell_cond = [spot_price < BC, spot_price < vwap_val, ema9_val < ema21_val, rsi_val <= 45]
 
 if all(buy_cond):
-    target = round(min(R1, spot_price + 60), 2)
-    sl = round(max(BC, vwap_val - 15), 2)
-    st.success("BUY SIGNAL (Call Option) - Entry: Rs {:,.2f} | Target: Rs {:,.2f} | SL: Rs {:,.2f}".format(spot_price, target, sl))
+    st.success(
+        "Bullish alignment detected: price above TC/VWAP, "
+        "EMA 9 above EMA 21, RSI at/above 55."
+    )
 elif all(sell_cond):
-    target = round(max(S1, spot_price - 60), 2)
-    sl = round(min(TC, vwap_val + 15), 2)
-    st.error("SELL SIGNAL (Put Option) - Entry: Rs {:,.2f} | Target: Rs {:,.2f} | SL: Rs {:,.2f}".format(spot_price, target, sl))
-elif spot_price > pdh and (spot_price - pdh) < 20 and rsi_val > 68:
-    st.warning("PDH Trap: Overbought-ல் ஏமாற்று பிரேக்அவுட் சாத்தியம்.")
+    st.error(
+        "Bearish alignment detected: price below BC/VWAP, "
+        "EMA 9 below EMA 21, RSI at/below 45."
+    )
 else:
-    st.info("நோ-டிரேட் மண்டலம்: தெளிவான சிக்னல் வரை காத்திருக்கவும்.")
+    st.info("Mixed conditions: no clear technical alignment.")
+
+st.caption(
+    "Reference levels - BC: Rs {:,.2f} | TC: Rs {:,.2f} | R1: Rs {:,.2f} | S1: Rs {:,.2f}".format(
+        BC, TC, R1, S1
+    )
+)
 
 # ===== 3. LIVE ALERTS =====
 st.markdown("---")
@@ -316,7 +323,8 @@ for a in alerts:
 
 # ===== 4. MARKET BREADTH =====
 st.markdown("---")
-st.subheader("Market Breadth - Nifty 50")
+st.subheader("Market Breadth - Nifty 50 Watchlist")
+st.caption("இது ஒரு maintained Nifty heavyweight watchlist (18 stocks); முழு Nifty 50 அல்ல.")
 breadth_stocks, _ = get_nifty50_breadth()
 if breadth_stocks:
     adv = sum(1 for s in breadth_stocks if s["Change%"] > 0.05)
@@ -475,26 +483,37 @@ st.subheader("NIFTY Intraday Chart - Price & VWAP")
 cdf = session_hist[["Close", "VWAP"]].copy().dropna(subset=["Close"])
 
 if not cdf.empty:
+    chart_values = (
+        cdf["Close"].dropna().tolist()
+        + cdf["VWAP"].dropna().tolist()
+        + [pdh, pdl, R1, S1, TC, BC, PP]
+    )
+    valid_values = []
+    for v in chart_values:
+        if pd.notna(v) and np.isfinite(v) and (spot_price - 400) <= float(v) <= (spot_price + 400):
+            valid_values.append(float(v))
+
+    if valid_values:
+        low = min(valid_values)
+        high = max(valid_values)
+        padding = max(25.0, (high - low) * 0.10)
+        y_range = [low - padding, high + padding]
+    else:
+        y_range = [spot_price - 250, spot_price + 250]
+
     fig = go.Figure()
+
+    fig.add_hrect(
+        y0=BC, y1=TC,
+        fillcolor="LightSkyBlue",
+        opacity=0.15,
+        line_width=0,
+        layer="below",
+    )
+
     fig.add_trace(go.Scatter(x=cdf.index, y=cdf["Close"], mode="lines", name="Price", line=dict(color="#0052cc", width=2.5)))
     fig.add_trace(go.Scatter(x=cdf.index, y=cdf["VWAP"], mode="lines", name="VWAP", line=dict(color="#ff9900", width=1.8, dash="dash")))
     fig.add_trace(go.Scatter(x=[cdf.index[0], cdf.index[-1]], y=[TC, TC], mode="lines", name="TC", line=dict(color="#66b3ff", width=1, dash="dot")))
     fig.add_trace(go.Scatter(x=[cdf.index[0], cdf.index[-1]], y=[BC, BC], mode="lines", name="BC", line=dict(color="#3399ff", width=1, dash="dot")))
     fig.add_trace(go.Scatter(x=[cdf.index[0], cdf.index[-1]], y=[PP, PP], mode="lines", name="Pivot", line=dict(color="#0066cc", width=1, dash="dash")))
-    fig.add_trace(go.Scatter(x=[cdf.index[0], cdf.index[-1]], y=[pdh, pdh], mode="lines", name="PDH", line=dict(color="#cc0000", width=1)))
-    fig.add_trace(go.Scatter(x=[cdf.index[0], cdf.index[-1]], y=[pdl, pdl], mode="lines", name="PDL", line=dict(color="#00b300", width=1)))
-    fig.update_layout(
-        height=450,
-        margin=dict(l=10, r=10, t=30, b=10),
-        legend=dict(orientation="h", y=-0.15),
-        xaxis_title="Time (IST)",
-        yaxis_title="Price (Rs)",
-        hovermode="x unified",
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-    st.markdown("### Key Pivots & Levels")
-    lvl_tbl = pd.DataFrame([
-        {"Level": "PDH", "Price": "Rs {:,.2f}".format(pdh), "Zone": "Resistance"},
-        {"Level": "R2", "Price": "Rs {:,.2f}".format(R2), "Zone": "Major Resistance"},
-        {"Level": "R1", "Price": "Rs
+    fig.add_trace(go.Scatter(x=[cdf.index[0], cdf.index[-1]], y=[pdh, pdh], mode="lines", name="PDH", line=
