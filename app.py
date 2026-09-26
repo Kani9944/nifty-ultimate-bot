@@ -247,7 +247,7 @@ try:
       else spot_price
   )
 
-  # ========== 1. TOP METRICS (FORCE SIDE-BY-SIDE MOBILE VIEW) ==========
+  # ========== 1. TOP METRICS (SIDE-BY-SIDE MOBILE VIEW) ==========
   nd_str = f"{nifty_5m:+.2f}%" if nifty_5m is not None else "0.00%"
   bd_str = f"{bn_5m:+.2f}%" if bn_5m is not None else "0.00%"
   vd_str = f"{vix_5m:+.2f}%" if vix_5m is not None else "0.00%"
@@ -314,33 +314,29 @@ try:
     target = round(min(R1, spot_price + 60), 2)
     stoploss = round(max(BC, vwap_val - 15), 2)
     st.success(
-        f"🟢 **BUY SIGNAL (Call Option சாதகம்)**\n\n"
-        f"- **காரணம்:** விலை CPR (TC) மற்றும் VWAP-க்கு மேல் உள்ளது. EMA 9 > EMA"
-        f" 21, RSI: {rsi_val:.1f}\n"
-        f"- **என்ட்ரி வரம்பு:** ₹{spot_price:,.2f}\n"
-        f"- **இலக்கு (Target):** ₹{target:,.2f} (R1)\n"
-        f"- **ஸ்டாப்லாஸ் (SL):** ₹{stoploss:,.2f}"
+        f"🟢 **BUY SIGNAL (Call Option சாதகம்)**\n\n- **காரணம்:** விலை CPR (TC)"
+        f" மற்றும் VWAP-க்கு மேல் உள்ளது. EMA 9 > EMA 21, RSI:"
+        f" {rsi_val:.1f}\n- **என்ட்ரி:** ₹{spot_price:,.2f} | **இலக்கு:**"
+        f" ₹{target:,.2f} | **ஸ்டாப்லாஸ்:** ₹{stoploss:,.2f}"
     )
   elif all(sell_conditions):
     target = round(max(S1, spot_price - 60), 2)
     stoploss = round(min(TC, vwap_val + 15), 2)
     st.error(
-        f"🔴 **SELL SIGNAL (Put Option சாதகம்)**\n\n"
-        f"- **காரணம்:** விலை CPR (BC) மற்றும் VWAP-க்கு கீழ் உள்ளது. EMA 9 <"
-        f" EMA 21, RSI: {rsi_val:.1f}\n"
-        f"- **என்ட்ரி வரம்பு:** ₹{spot_price:,.2f}\n"
-        f"- **இலக்கு (Target):** ₹{target:,.2f} (S1)\n"
-        f"- **ஸ்டாப்லாஸ் (SL):** ₹{stoploss:,.2f}"
+        f"🔴 **SELL SIGNAL (Put Option சாதகம்)**\n\n- **காரணம்:** விலை CPR (BC)"
+        f" மற்றும் VWAP-க்கு கீழ் உள்ளது. EMA 9 < EMA 21, RSI:"
+        f" {rsi_val:.1f}\n- **என்ட்ரி:** ₹{spot_price:,.2f} | **இலக்கு:**"
+        f" ₹{target:,.2f} | **ஸ்டாப்லாஸ்:** ₹{stoploss:,.2f}"
     )
   elif spot_price > pdh and (spot_price - pdh) < 20 and rsi_val > 68:
     st.warning(
-        f"⚠️ **PDH Liquidity Trap எச்சரிக்கை:** விலை ₹{pdh:,.2f}-ஐ தாண்டி அதிக"
-        " வாங்குதல் (Overbought) மண்டலத்தில் உள்ளது. திடீர் இறக்கம் வர வாய்ப்பு."
+        f"⚠️ **PDH Trap எச்சரிக்கை:** விலை ₹{pdh:,.2f}-ஐ தாண்டி Overbought-ல்"
+        " உள்ளது. ஏமாற்றுப் பிரேக்அவுட் சாத்தியம்."
     )
   else:
     st.info(
-        "⚖️ **நோ-டிரேட் மண்டலம் (No-Trade Zone / Range Bound):** சந்தை"
-        " குறிப்பிட்ட எல்லைக்குள் நகர்கிறது. தெளிவான பிரேக்அவுட் வரை காத்திருக்கவும்."
+        "⚖️ **நோ-டிரேட் மண்டலம் (Range Bound):** தெளிவான பிரேக்அவுட் சிக்னல்"
+        " வரும் வரை காத்திருக்கவும்."
     )
 
   # ========== 3. LIVE ALERTS ==========
@@ -379,7 +375,7 @@ try:
   for a in alerts:
     st.markdown(f"- {a}")
 
-  # ========== 4. TOP 5 GAINERS & LOSERS (FORCE SIDE-BY-SIDE) ==========
+  # ========== 4. TOP 5 GAINERS & LOSERS (SIDE-BY-SIDE) ==========
   st.markdown("---")
   st.subheader("Market Breadth - Nifty 50")
   breadth_stocks, _ = get_nifty50_breadth()
@@ -395,20 +391,18 @@ try:
     )
 
     ss = sorted(breadth_stocks, key=lambda x: x["Change%"], reverse=True)
-    gainers_html = "".join([
-        f"<div style='border-bottom:1px solid #ddd; padding:3px"
-        f" 0;'><b>{s['Symbol']}</b><br><span"
-        f" style='font-size:11px;'>₹{s['LTP']:,.2f} <span"
-        f" style='color:#00b300;'>(+{s['Change%']}%)</span></span></div>"
+    g_list = [
+        f"<div style='border-bottom:1px solid #eee;"
+        f" padding:3px;'><b>{s['Symbol']}</b><br>₹{s['LTP']:,.2f} <span"
+        f" style='color:#00b300;'>(+{s['Change%']}%)</span></div>"
         for s in ss[:5]
-    ])
-    losers_html = "".join([
-        f"<div style='border-bottom:1px solid #ddd; padding:3px"
-        f" 0;'><b>{s['Symbol']}</b><br><span"
-        f" style='font-size:11px;'>₹{s['LTP']:,.2f} <span"
-        f" style='color:#cc0000;'>({s['Change%']}%)</span></span></div>"
+    ]
+    l_list = [
+        f"<div style='border-bottom:1px solid #eee;"
+        f" padding:3px;'><b>{s['Symbol']}</b><br>₹{s['LTP']:,.2f} <span"
+        f" style='color:#cc0000;'>({s['Change%']}%)</span></div>"
         for s in ss[-5:][::-1]
-    ])
+    ]
 
     st.write(
         f"""
@@ -416,11 +410,11 @@ try:
             <div style="display: flex;">
                 <div style="flex: 1; padding: 4px; border-right: 1px solid #333;">
                     <div style="font-weight: bold; color: #00b300; margin-bottom: 6px;">🟢 Top 5 Gainers</div>
-                    {gainers_html}
+                    {"".join(g_list)}
                 </div>
                 <div style="flex: 1; padding: 4px; padding-left: 8px;">
                     <div style="font-weight: bold; color: #cc0000; margin-bottom: 6px;">🔴 Top 5 Losers</div>
-                    {losers_html}
+                    {"".join(l_list)}
                 </div>
             </div>
         </div>
@@ -554,7 +548,10 @@ try:
               )
               if t_obj["type"] == "CE"
               else round(
-                  max(5.0, 175.0 - ((spot_price - t_obj["strike"]) / 50.0 * 45)),
+                  max(
+                      5.0,
+                      175.0 - ((spot_price - t_obj["strike"]) / 50.0 * 45),
+                  ),
                   2,
               )
           )
@@ -574,13 +571,22 @@ try:
     st.line_chart(chart_plot_df, height=400)
 
     st.markdown("### 🎯 Key Pivots & Levels")
-    lvl_tbl = pd.DataFrame([
-        {"Level": "PDH", "Price": f"₹{pdh:,.2f}", "Zone": "Resistance"},
-        {"Level": "R2", "Price": f"₹{R2:,.2f}", "Zone": "Major Resistance"},
-        {
-            "Level": "R1",
-            "Price": f"₹{R1:,.2f}",
-            "Zone": "Immediate Resistance",
-        },
-        {"Level": "TC", "Price": f"₹{TC:,.2f}", "Zone": "CPR Top"},
-        {"Le
+    st.write(
+        f"🔺 **PDH:** ₹{pdh:,.2f} | 🔴 **R2:** ₹{R2:,.2f} | 🔴 **R1:**"
+        f" ₹{R1:,.2f}"
+    )
+    st.write(
+        f"🎯 **CPR:** ₹{BC:,.2f} (BC) - ₹{PP:,.2f} (Pivot) - ₹{TC:,.2f} (TC)"
+    )
+    st.write(
+        f"🟢 **S1:** ₹{S1:,.2f} | 🟢 **S2:** ₹{S2:,.2f} | 🔻 **PDL:**"
+        f" ₹{pdl:,.2f}"
+    )
+
+  # ========== 9. TECHNICAL INDICATORS & NEWS ==========
+  st.markdown("---")
+  st.subheader("📊 Technical Indicators & News")
+  st.write(f"🔹 **EMA 9:** ₹{ema9_val:,.2f} | 🔹 **EMA 21:** ₹{ema21_val:,.2f}")
+  st.write(f"🔹 **VWAP:** ₹{vwap_val:,.2f} | 🔹 **RSI (14):** {rsi_val:.2f}")
+
+  for n in get_marke
