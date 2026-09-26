@@ -1,13 +1,12 @@
-
-import streamlit as st
+வசதிகள் சேர்க்க வேண்டுமா?import streamlit as st
 import yfinance as yf
 import pandas as pd
 import ta
 import numpy as np
 import feedparser
 
-st.set_page_config(page_title="Nifty AI Pro Ultimate Monitor", layout="wide")
-st.title("🚀 NIFTY 50 AI Pro Ultimate Trading Panel")
+st.set_page_config(page_title="Nifty AI Ultimate Monitor Pro", layout="wide")
+st.title("🚀 NIFTY 50 AI Ultimate Trading Panel")
 
 def get_market_news():
     rss_url = "https://moneycontrol.com"
@@ -33,7 +32,7 @@ try:
         st.metric("📊 Nifty 50 Spot Price", f"₹{spot_price:,.2f}", f"{change:+,.2f} ({percent_change:+.2f}%)")
         
         st.markdown("---")
-        st.subheader("🎯 Market Opening & Big Players Actions")
+        st.subheader("🎯 Market Opening & Big Players Activity")
         box1, box2 = st.columns(2)
         
         with box1:
@@ -106,6 +105,14 @@ try:
             news = get_market_news()
             for n in news:
                 st.write(n)
+        
+        # 🌟 புதிய வரைபடப் பகுதி (Live Chart Section)
+        st.markdown("---")
+        st.subheader("📈 NIFTY 50 - Live 5-Minute Close Trend Chart")
+        st.line_chart(hist['Close'].tail(100))
 
 except Exception as e:
     st.error(f"புதுப்பிப்பதில் சிறு சிக்கல்: {e}")
+    
+• சந்தையின் போக்கைக் காட்டும் ஒரு லைவ் வரைபடத்தை (Candlestick / Line Chart) வசதிகள் சேர்க்க வேண்டுமா?
+• சந்தையின் போக்கைக் காட்டும் ஒரு லைவ் வரைபடத்தை (Candlestick / Line Chart) இந்த வெப்சைட்டின் கீழ் பகுதியிலேயே இணைக்கலாமா
