@@ -448,7 +448,5 @@ with e3:
         "Note": "Nifty Snapshot",
     }])
     to_csv_download(
-    summary_df,
-    
-    )
+    summary_df,)
     
