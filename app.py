@@ -573,11 +573,19 @@ try:
   chart_df["Time"] = chart_df.index
   chart_df = chart_df.reset_index(drop=True)
 
-  # VWAP Fallback: Volume விடுபட்டிருந்தால் விலைக்கோட்டையே VWAP ஆகப் பயன்படுத்துதல்
+  # VWAP Fallback & குறிப்பு
+  is_vwap_proxy = False
   if chart_df["VWAP"].isna().all():
     chart_df["VWAP"] = chart_df["Close"]
+    is_vwap_proxy = True
 
-  # வலதுபுறத்தில் இடைவெளி
+  if is_vwap_proxy:
+    st.caption(
+        "ℹ️ **VWAP Note:** Yahoo 5-min feed-ல் வால்யூம் கிடைக்காததால், VWAP"
+        " விலைக்கோட்டை ஒட்டியே proxy-யாகக் காட்டப்படுகிறது."
+    )
+
+  # வலதுபுறத்தில் இடைவெளி (Padding)
   chart_start = chart_df["Time"].min()
   chart_end = chart_df["Time"].max() + pd.Timedelta(minutes=15)
 
@@ -621,6 +629,10 @@ try:
               title="Price (₹)",
               scale=alt.Scale(domain=[min_val, max_val], zero=False),
           ),
+          tooltip=[
+              alt.Tooltip("Time:T", title="Time", format="%d-%b %H:%M"),
+              alt.Tooltip("Close:Q", title="Price", format=",.2f"),
+          ],
       )
   )
 
@@ -633,10 +645,14 @@ try:
           y=alt.Y(
               "VWAP:Q", scale=alt.Scale(domain=[min_val, max_val], zero=False)
           ),
+          tooltip=[
+              alt.Tooltip("Time:T", title="Time", format="%d-%b %H:%M"),
+              alt.Tooltip("VWAP:Q", title="Session VWAP", format=",.2f"),
+          ],
       )
   )
 
-  # 3. Current Price Dot Marker (பாதுகாப்பான DataFrame slice)
+  # 3. Current Price Dot Marker
   latest_bar = chart_df.tail(1)
   price_dot = (
       alt.Chart(latest_bar)
@@ -646,27 +662,31 @@ try:
           y=alt.Y(
               "Close:Q", scale=alt.Scale(domain=[min_val, max_val], zero=False)
           ),
+          tooltip=[
+              alt.Tooltip("Time:T", title="Latest bar", format="%d-%b %H:%M"),
+              alt.Tooltip("Close:Q", title="Current price", format=",.2f"),
+          ],
       )
   )
 
-  # 4. CPR Band (BC முதல் TC வரை மெல்லிய வண்ணப் பட்டை)
+  # 4. CPR Band (Tooltip முற்றிலுமாக நீக்கப்பட்டுள்ளது)
   cpr_band_data = pd.DataFrame([{
-      "Start": chart_start,
-      "End": chart_end,
-      "Lower": float(BC),
-      "Upper": float(TC),
+      "_Start": chart_start,
+      "_End": chart_end,
+      "_Lower": float(BC),
+      "_Upper": float(TC),
   }])
 
   cpr_band = (
       alt.Chart(cpr_band_data)
-      .mark_rect(color="#9ecae1", opacity=0.18)
+      .mark_rect(color="#9ecae1", opacity=0.18, tooltip=None)
       .encode(
-          x=alt.X("Start:T"),
-          x2="End:T",
+          x=alt.X("_Start:T"),
+          x2="_End:T",
           y=alt.Y(
-              "Lower:Q", scale=alt.Scale(domain=[min_val, max_val], zero=False)
+              "_Lower:Q", scale=alt.Scale(domain=[min_val, max_val], zero=False)
           ),
-          y2="Upper:Q",
+          y2="_Upper:Q",
       )
   )
 
@@ -679,13 +699,17 @@ try:
               "Value:Q", scale=alt.Scale(domain=[min_val, max_val], zero=False)
           ),
           color=alt.Color("Color:N", scale=None, legend=None),
+          tooltip=[
+              alt.Tooltip("Level:N", title="Level"),
+              alt.Tooltip("Value:Q", title="Price", format=",.2f"),
+          ],
       )
   )
 
-  # 6. வலதுபுறம் Key-level பெயர்கள் (Labels)
+  # 6. வலதுபுறம் Key-level பெயர்கள் (dx=8 என நகர்த்தப்பட்டுள்ளது)
   level_labels = (
       alt.Chart(levels_data)
-      .mark_text(align="left", dx=5, dy=-4, fontSize=11, fontWeight="bold")
+      .mark_text(align="left", dx=8, dy=-4, fontSize=11, fontWeight="bold")
       .encode(
           x=alt.X("Time:T"),
           y=alt.Y(
@@ -696,7 +720,7 @@ try:
       )
   )
 
-  # 7. Current Price Label (dy=18 கொண்டு கீழே வைக்கப்பட்டுள்ளது)
+  # 7. Current Price Label (dy=18 கொண்டு Pivot மறைக்கப்படாமல் கீழே வைக்கப்பட்டுள்ளது)
   current_price_label_data = pd.DataFrame([{
       "Time": chart_df["Time"].max() + pd.Timedelta(minutes=3),
       "Price": spot_price,
@@ -707,7 +731,7 @@ try:
       alt.Chart(current_price_label_data)
       .mark_text(
           align="left",
-          dx=5,
+          dx=8,
           dy=18,
           fontSize=11,
           fontWeight="bold",
