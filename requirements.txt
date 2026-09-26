@@ -1,9 +1,9 @@
-streamlit-autorefresh
 streamlit
+streamlit-autorefresh
 yfinance
 pandas
-ta
-scipy
-feedparser
+numpy
 altair
-plotly
+ta
+feedparser
+requests
