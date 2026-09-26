@@ -7,7 +7,7 @@ import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 import yfinance as yf
 
-st.set_page_config(page_title="Nifty Monitor", layout="wide")
+st.set_page_config(page_title="Nifty Monitor & Strategy", layout="wide")
 st_autorefresh(interval=30 * 1000, key="refresh")
 st.title("🦅 NIFTY 50 - Smart Money & Market Monitor")
 
@@ -16,12 +16,12 @@ def format_lakhs(v):
   try:
     val = float(v)
     if val >= 10000000:
-      return f"{val/10000000:.2f} Cr"
+      return "{:.2f} Cr".format(val / 10000000)
     if val >= 100000:
-      return f"{val/100000:.2f} L"
+      return "{:.2f} L".format(val / 100000)
     if val >= 1000:
-      return f"{val/1000:.1f} K"
-    return f"{val:,.0f}"
+      return "{:.1f} K".format(val / 1000)
+    return "{:,.0f}".format(val)
   except Exception:
     return str(v)
 
@@ -58,8 +58,6 @@ def add_paper_trade(strike, opt_type, entry_price, qty):
       "type": opt_type,
       "entry": float(entry_price),
       "qty": int(qty),
-      "exit": None,
-      "pnl": 0.0,
       "status": "OPEN",
   })
   st.session_state.paper_trade_next_id += 1
@@ -74,8 +72,8 @@ def close_paper_trade(t_id, exit_p):
 
 
 @st.cache_data(ttl=25)
-def get_stock_data(sym, period, interval=None):
-  t = yf.Ticker(sym)
+def get_stock_data(symbol, period, interval=None):
+  t = yf.Ticker(symbol)
   return (
       t.history(period=period, interval=interval)
       if interval
@@ -166,7 +164,7 @@ def get_market_news():
           break
     except Exception:
       continue
-  return news[:6] if news else ["🌐 வர்த்தகச் செய்திகள் தற்காலிகமாக கிடைக்கவில்லை."]
+  return news[:6] if news else ["🌐 வர்த்தகச் செய்திகள் கிடைக்கவில்லை."]
 
 
 try:
@@ -204,7 +202,6 @@ try:
 
   spot_price = float(session_hist["Close"].iloc[-1])
   _, nifty_5m = get_last_bar_change(session_hist)
-
   prev_sessions = daily[pd.Index(daily.index.date) < session_date]
   if prev_sessions.empty:
     st.error("Previous session data கிடைக்கவில்லை.")
@@ -233,7 +230,6 @@ try:
 
   bn_price, bn_5m = get_last_bar_change(bn_hist)
   vix_val, vix_5m = get_last_bar_change(vix_hist)
-
   ema9_val = float(hist["Close"].ewm(span=9, adjust=False).mean().iloc[-1])
   ema21_val = float(hist["Close"].ewm(span=21, adjust=False).mean().iloc[-1])
   rsi_series = calculate_rsi(hist["Close"], window=14)
@@ -246,32 +242,43 @@ try:
       else spot_price
   )
 
-  # ========== 1. TOP METRICS BOX ==========
-  nd_str = f"{nifty_5m:+.2f}%" if nifty_5m is not None else "0.00%"
-  bd_str = f"{bn_5m:+.2f}%" if bn_5m is not None else "0.00%"
-  vd_str = f"{vix_5m:+.2f}%" if vix_5m is not None else "0.00%"
+  # 1. TOP METRICS BOX
+  nd_str = "{:+.2f}%".format(nifty_5m) if nifty_5m is not None else "0.00%"
+  bd_str = "{:+.2f}%".format(bn_5m) if bn_5m is not None else "0.00%"
+  vd_str = "{:+.2f}%".format(vix_5m) if vix_5m is not None else "0.00%"
   nc_c = "#00b300" if (nifty_5m or 0) >= 0 else "#cc0000"
   bc_c = "#00b300" if (bn_5m or 0) >= 0 else "#cc0000"
   vc_c = "#cc0000" if (vix_5m or 0) >= 0 else "#00b300"
-  bn_s = f"₹{bn_price:,.2f}" if bn_price is not None else "N/A"
-  vix_s = f"{vix_val:.2f}" if vix_val is not None else "N/A"
+  bn_s = "₹{:,.2f}".format(bn_price) if bn_price is not None else "N/A"
+  vix_s = "{:.2f}".format(vix_val) if vix_val is not None else "N/A"
 
   st.write(
-      f"""<div style="border:1px solid #333;border-radius:6px;padding:8px;margin-bottom:12px;font-family:monospace;background:#fff;">
-      <div style="display:flex;border-bottom:1px solid #333;padding-bottom:6px;">
-        <div style="flex:1;padding:4px;border-right:1px solid #333;"><div style="font-size:11px;color:#555;">NIFTY 50</div><div style="font-size:16px;font-weight:bold;">₹{spot_price:,.2f}</div><div style="font-size:11px;color:{nc_c};">{nd_str}</div></div>
-        <div style="flex:1;padding:4px;padding-left:8px;"><div style="font-size:11px;color:#555;">BANK NIFTY</div><div style="font-size:16px;font-weight:bold;">{bn_s}</div><div style="font-size:11px;color:{bc_c};">{bd_str}</div></div>
-      </div>
-      <div style="border-bottom:1px solid #333;padding:6px 0;text-align:center;"><div style="font-size:11px;color:#555;">INDIA VIX</div><div style="font-size:16px;font-weight:bold;">{vix_s}</div><div style="font-size:11px;color:{vc_c};">{vd_str}</div></div>
-      <div style="display:flex;padding-top:6px;">
-        <div style="flex:1;padding:4px;border-right:1px solid #333;"><div style="font-size:11px;color:#555;">PDH</div><div style="font-size:15px;font-weight:bold;">₹{pdh:,.2f}</div></div>
-        <div style="flex:1;padding:4px;padding-left:8px;"><div style="font-size:11px;color:#555;">PDL</div><div style="font-size:15px;font-weight:bold;">₹{pdl:,.2f}</div></div>
-      </div>
-    </div>""",
+      """<div style="border:1px solid #333;border-radius:6px;padding:8px;font-family:monospace;background:#fff;margin-bottom:10px;">
+    <div style="display:flex;border-bottom:1px solid #333;padding-bottom:5px;">
+      <div style="flex:1;border-right:1px solid #333;padding:4px;"><span style="font-size:11px;color:#555;">NIFTY 50</span><br><b style="font-size:16px;">₹{:,.2f}</b><br><span style="font-size:11px;color:{};">{}</span></div>
+      <div style="flex:1;padding:4px;padding-left:8px;"><span style="font-size:11px;color:#555;">BANK NIFTY</span><br><b style="font-size:16px;">{}</b><br><span style="font-size:11px;color:{};">{}</span></div>
+    </div>
+    <div style="border-bottom:1px solid #333;padding:4px 0;text-align:center;"><span style="font-size:11px;color:#555;">INDIA VIX</span><br><b style="font-size:16px;">{}</b> <span style="font-size:11px;color:{};">{}</span></div>
+    <div style="display:flex;padding-top:5px;">
+      <div style="flex:1;border-right:1px solid #333;padding:4px;"><span style="font-size:11px;color:#555;">PDH</span><br><b style="font-size:15px;">₹{:,.2f}</b></div>
+      <div style="flex:1;padding:4px;padding-left:8px;"><span style="font-size:11px;color:#555;">PDL</span><br><b style="font-size:15px;">₹{:,.2f}</b></div>
+    </div></div>""".format(
+          spot_price,
+          nc_c,
+          nd_str,
+          bn_s,
+          bc_c,
+          bd_str,
+          vix_s,
+          vc_c,
+          vd_str,
+          pdh,
+          pdl,
+      ),
       unsafe_allow_html=True,
   )
 
-  # ========== 2. STRATEGY ENGINE ==========
+  # 2. STRATEGY ENGINE
   st.markdown("---")
   st.subheader("⚡ நேரலை டிரேடிங் ஸ்ட்ராடஜி (Strategy Signal)")
   buy_cond = [
@@ -288,51 +295,50 @@ try:
   ]
 
   if all(buy_cond):
-    target, sl = round(min(R1, spot_price + 60), 2), round(
-        max(BC, vwap_val - 15), 2
-    )
     st.success(
-        f"🟢 BUY SIGNAL (Call சாதகம்) | என்ட்ரி: ₹{spot_price:,.2f} | இலக்கு:"
-        f" ₹{target:,.2f} | SL: ₹{sl:,.2f}"
+        "🟢 BUY SIGNAL (Call சாதகம்) | என்ட்ரி: ₹{:,.2f} | இலக்கு: ₹{:,.2f} |"
+        " SL: ₹{:,.2f}".format(
+            spot_price,
+            round(min(R1, spot_price + 60), 2),
+            round(max(BC, vwap_val - 15), 2),
+        )
     )
   elif all(sell_cond):
-    target, sl = round(max(S1, spot_price - 60), 2), round(
-        min(TC, vwap_val + 15), 2
-    )
     st.error(
-        f"🔴 SELL SIGNAL (Put சாதகம்) | என்ட்ரி: ₹{spot_price:,.2f} | இலக்கு:"
-        f" ₹{target:,.2f} | SL: ₹{sl:,.2f}"
+        "🔴 SELL SIGNAL (Put சாதகம்) | என்ட்ரி: ₹{:,.2f} | இலக்கு: ₹{:,.2f} |"
+        " SL: ₹{:,.2f}".format(
+            spot_price,
+            round(max(S1, spot_price - 60), 2),
+            round(min(TC, vwap_val + 15), 2),
+        )
     )
   elif spot_price > pdh and (spot_price - pdh) < 20 and rsi_val > 68:
     st.warning("⚠️ PDH Trap: Overbought-ல் ஏமாற்றுப் பிரேக்அவுட் சாத்தியம்.")
   else:
     st.info("⚖️ நோ-டிரேட் மண்டலம் (Range Bound): சிக்னல் வரை காத்திருக்கவும்.")
 
-  # ========== 3. LIVE ALERTS ==========
+  # 3. LIVE ALERTS
   st.markdown("---")
   st.subheader("🔔 Live Alerts")
-  alerts = []
   if pd.notna(ema9_val) and pd.notna(ema21_val):
-    alerts.append(
-        f"🟢 EMA Bullish ({ema9_val:,.1f} > {ema21_val:,.1f})"
+    st.write(
+        "🟢 EMA Bullish ({:,.1f} > {:,.1f})".format(ema9_val, ema21_val)
         if ema9_val > ema21_val
-        else f"🔴 EMA Bearish ({ema9_val:,.1f} < {ema21_val:,.1f})"
+        else "🔴 EMA Bearish ({:,.1f} < {:,.1f})".format(ema9_val, ema21_val)
     )
   if pd.notna(vwap_val):
-    alerts.append(
-        f"🟢 Above VWAP ({spot_price:,.1f} > {vwap_val:,.1f})"
+    st.write(
+        "🟢 Above VWAP ({:,.1f} > {:,.1f})".format(spot_price, vwap_val)
         if spot_price > vwap_val
-        else f"🔴 Below VWAP ({spot_price:,.1f} < {vwap_val:,.1f})"
+        else "🔴 Below VWAP ({:,.1f} < {:,.1f})".format(spot_price, vwap_val)
     )
   if pd.notna(rsi_val):
     if rsi_val >= 70:
-      alerts.append(f"⚠️ RSI Overbought ({rsi_val:.1f})")
+      st.write("⚠️ RSI Overbought ({:.1f})".format(rsi_val))
     elif rsi_val <= 30:
-      alerts.append(f"🟢 RSI Oversold ({rsi_val:.1f})")
-  for a in alerts:
-    st.write(f"- {a}")
+      st.write("🟢 RSI Oversold ({:.1f})".format(rsi_val))
 
-  # ========== 4. TOP 5 GAINERS & LOSERS ==========
+  # 4. TOP 5 GAINERS & LOSERS
   st.markdown("---")
   st.subheader("Market Breadth - Nifty 50")
   breadth_stocks, _ = get_nifty50_breadth()
@@ -344,31 +350,36 @@ try:
     b2.metric("Declines", sum(1 for s in breadth_stocks if s["Change%"] < -0.05))
     b3.metric(
         "Avg Change",
-        f"{sum(s['Change%'] for s in breadth_stocks)/len(breadth_stocks):+.2f}%",
+        "{:+.2f}%".format(
+            sum(s["Change%"] for s in breadth_stocks) / len(breadth_stocks)
+        ),
     )
 
     ss = sorted(breadth_stocks, key=lambda x: x["Change%"], reverse=True)
     g_h = "".join([
-        f"<div style='border-bottom:1px solid #eee;padding:2px;'><b>{s['Symbol']}</b>"
-        f" ₹{s['LTP']:,.1f} <span style='color:#00b300;'>(+{s['Change%']}%)</span></div>"
+        "<div style='border-bottom:1px solid #eee;padding:2px;'><b>{}</b>"
+        " ₹{:,.1f} <span style='color:#00b300;'>(+{}%)</span></div>".format(
+            s["Symbol"], s["LTP"], s["Change%"]
+        )
         for s in ss[:5]
     ])
     l_h = "".join([
-        f"<div style='border-bottom:1px solid #eee;padding:2px;'><b>{s['Symbol']}</b>"
-        f" ₹{s['LTP']:,.1f} <span style='color:#cc0000;'>({s['Change%']}%)</span></div>"
+        "<div style='border-bottom:1px solid #eee;padding:2px;'><b>{}</b>"
+        " ₹{:,.1f} <span style='color:#cc0000;'>({}%)</span></div>".format(
+            s["Symbol"], s["LTP"], s["Change%"]
+        )
         for s in ss[-5:][::-1]
     ])
     st.write(
-        f"""<div style="border:1px solid #333;border-radius:6px;padding:8px;font-family:monospace;background:#fff;">
+        """<div style="border:1px solid #333;border-radius:6px;padding:8px;font-family:monospace;background:#fff;">
       <div style="display:flex;">
-        <div style="flex:1;padding:4px;border-right:1px solid #333;"><div style="font-weight:bold;color:#00b300;">🟢 Top 5 Gainers</div>{g_h}</div>
-        <div style="flex:1;padding:4px;padding-left:8px;"><div style="font-weight:bold;color:#cc0000;">🔴 Top 5 Losers</div>{l_h}</div>
-      </div>
-    </div>""",
+        <div style="flex:1;padding:4px;border-right:1px solid #333;"><div style="font-weight:bold;color:#00b300;">🟢 Top 5 Gainers</div>{}</div>
+        <div style="flex:1;padding:4px;padding-left:8px;"><div style="font-weight:bold;color:#cc0000;">🔴 Top 5 Losers</div>{}</div>
+      </div></div>""".format(g_h, l_h),
         unsafe_allow_html=True,
     )
 
-  # ========== 5. SECTOR PERFORMANCE ==========
+  # 5. SECTOR PERFORMANCE
   st.markdown("---")
   st.subheader("Sector Performance")
   sec_data = get_sector_data()
@@ -376,11 +387,11 @@ try:
     cols = st.columns(len(sec_data))
     for i, (name, pct) in enumerate(sec_data.items()):
       with cols[i]:
-        st.success(f"{name}: +{pct:.2f}%") if pct >= 0 else st.error(
-            f"{name}: {pct:.2f}%"
+        st.success("{}: +{:.2f}%".format(name, pct)) if pct >= 0 else st.error(
+            "{}: {:.2f}%".format(name, pct)
         )
 
-  # ========== 6. OPTION CHAIN ==========
+  # 6. OPTION CHAIN
   st.markdown("---")
   st.subheader("Strike-wise Call vs Put (Estimated Model)")
   atm = int(round(spot_price / 50) * 50)
@@ -388,9 +399,8 @@ try:
   tot_call, tot_put = 0, 0
   for s in [atm + (i * 50) for i in range(-2, 3)]:
     d = abs(spot_price - s)
-    c_oi, p_oi = int(max(1500000, 4500000 - (d * 9000))), int(
-        max(1400000, 5200000 - (d * 8500))
-    )
+    c_oi = int(max(1500000, 4500000 - (d * 9000)))
+    p_oi = int(max(1400000, 5200000 - (d * 8500)))
     diff = (spot_price - s) / 50.0
     c_ltp, p_ltp = round(max(5.0, 180.0 + (diff * 45)), 2), round(
         max(5.0, 175.0 - (diff * 45)), 2
@@ -403,7 +413,7 @@ try:
         else ("🔴 Resistance" if c_oi > p_oi * 1.15 else "⚖️ Neutral")
     )
     rows.append({
-        "Strike": f"₹{s:,}" + (" 🎯 ATM" if s == atm else ""),
+        "Strike": "₹{:,}".format(s) + (" 🎯 ATM" if s == atm else ""),
         "Call OI": format_lakhs(c_oi),
         "Call LTP": f"₹{c_ltp}",
         "Put LTP": f"₹{p_ltp}",
@@ -415,18 +425,18 @@ try:
   pa, pb, pc = st.columns(3)
   pa.metric(
       "📊 PCR",
-      f"{pcr:.2f}",
+      "{:.2f}".format(pcr),
       (
           "🟢 Bullish"
           if pcr > 1.2
           else ("🔴 Bearish" if pcr < 0.8 else "⚖️ Neutral")
       ),
   )
-  pb.metric("🎯 ATM", f"₹{atm:,}")
-  pc.metric("📍 Spot", f"₹{spot_price:,.2f}")
+  pb.metric("🎯 ATM", "₹{:,}".format(atm))
+  pc.metric("📍 Spot", "₹{:,.2f}".format(spot_price))
   st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
 
-  # ========== 7. PAPER TRADING ==========
+  # 7. PAPER TRADING
   st.markdown("---")
   st.subheader("📝 Model-based Paper Trading")
   p_col1, p_col2 = st.columns([1, 2])
@@ -446,7 +456,7 @@ try:
               max(5.0, 175.0 - ((spot_price - pt_strike) / 50.0 * 45)), 2
           )
       )
-      st.write(f"Premium: ₹{est_p:,.2f} | Units: {pt_qty}")
+      st.write("Premium: ₹{:,.2f} | Units: {}".format(est_p, pt_qty))
       if st.form_submit_button("🚀 Place Trade"):
         add_paper_trade(pt_strike, pt_type, est_p, pt_qty)
         st.rerun()
@@ -471,11 +481,11 @@ try:
         )
         t_rows.append({
             "ID": t["id"],
-            "Trade": f"{t['strike']} {t['type']}",
-            "Entry": f"₹{t['entry']}",
+            "Trade": "{} {}".format(t["strike"], t["type"]),
+            "Entry": "₹{}".format(t["entry"]),
             "Qty": t["qty"],
-            "LTP": f"₹{cur_p if t['status']=='OPEN' else t['exit']}",
-            "PnL": f"₹{pnl:+,.2f}",
+            "LTP": "₹{}".format(cur_p if t["status"] == "OPEN" else t["exit"]),
+            "PnL": "₹{:+,.2f}".format(pnl),
             "Status": t["status"],
         })
       st.dataframe(pd.DataFrame(t_rows), hide_index=True)
@@ -509,7 +519,7 @@ try:
     else:
       st.info("டிரேடுகள் இல்லை.")
 
-  # ========== 8. CHART (PLOTLY) ==========
+  # 8. CHART WITH CPR & ANALYSIS
   st.markdown("---")
   st.subheader("📈 NIFTY Intraday Chart - Price, VWAP & CPR")
   cdf = session_hist[["Close", "VWAP"]].copy().dropna(subset=["Close"])
@@ -597,11 +607,9 @@ try:
 
     st.markdown("### 🎯 Key Pivots & Levels")
     st.write(
-        f"🔺 **PDH:** ₹{pdh:,.2f} | 🔴 **R2:** ₹{R2:,.2f} | 🔴 **R1:**"
-        f" ₹{R1:,.2f}"
+        "🔺 PDH: ₹{:,.2f} | 🔴 R2: ₹{:,.2f} | 🔴 R1: ₹{:,.2f}".format(
+            pdh, R2, R1
+        )
     )
     st.write(
-        f"🎯 **CPR:** ₹{BC:,.2f} (BC) - ₹{PP:,.2f} (Pivot) - ₹{TC:,.2f} (TC)"
-    )
-    st.write(
-        f"🟢 **S1:** ₹{S1:,.2f} | 🟢 **S2:** ₹{S2:,.2f} | 🔻 **
+      
