@@ -39,7 +39,7 @@ def get_heavyweight_intraday(symbol):
   return yf.Ticker(symbol).history(period="1d", interval="5m")
 
 
-# 3. தமிழ் செய்திகளுக்கான RSS Feed (தினமலர், தினமணி, Oneindia Tamil)
+# 3. தமிழ் செய்திகளுக்கான RSS Feed
 @st.cache_data(ttl=300)
 def get_market_news():
   fallback = ["📰 செய்திகள் தற்போது கிடைக்கவில்லை."]
@@ -581,7 +581,7 @@ try:
     for n in news_items:
       st.write(n)
 
-  # சார்ட் பகுதி (Fix 1: Locked Y-Scale with nice=False, padding=0, clamp=True)
+  # சார்ட் பகுதி
   st.markdown("---")
   if session_date == today_ist:
     st.subheader("📈 NIFTY 50 - Today's Intraday Levels Chart")
@@ -639,4 +639,8 @@ try:
   y_min = float(min(all_valid_prices) - 30)
   y_max = float(max(all_valid_prices) + 30)
 
-  # Sha
+  # Shared Strict Y-Axis Scale
+  y_scale = alt.Scale(
+      domain=[y_min, y_max],
+      clamp=True,
+   
