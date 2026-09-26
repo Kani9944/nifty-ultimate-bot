@@ -18,24 +18,75 @@ def get_stock_data(symbol, period, interval=None):
     return ticker.history(period=period)
 
 
+# NIFTY 50 முக்கிய பங்குகள் (NSE API முடங்கினால் தானாக இயங்க)
+NIFTY_TOP_STOCKS = [
+    "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "ICICIBANK.NS", "BHARTIARTL.NS",
+    "INFY.NS", "ITC.NS", "HINDUNILVR.NS", "LT.NS", "SBIN.NS",
+    "AXISBANK.NS", "KOTAKBANK.NS", "M&M.NS", "BAJFINANCE.NS", "MARUTI.NS"
+]
+
+
 @st.cache_data(ttl=60)
-def get_nse_session():
+def get_fallback_breadth():
+    stocks = []
+    for sym in NIFTY_TOP_STOCKS:
+        try:
+            t = yf.Ticker(sym)
+            df = t.history(period="2d")
+            if len(df) >= 2:
+                prev_c = df["Close"].iloc[-2]
+                curr_c = df["Close"].iloc[-1]
+                pchg = ((curr_c - prev_c) / prev_c) * 100
+                stocks.append({
+                    "Symbol": sym.replace(".NS", ""),
+                    "LTP": round(float(curr_c), 2),
+                    "Change%": round(float(pchg), 2)
+                })
+        except Exception:
+            continue
+    return stocks
+
+
+@st.cache_data(ttl=60)
+def get_nifty50_breadth():
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.nseindia.com/market-data/live-equity-market",
+    }
     try:
         session = requests.Session()
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
-            "Accept-Language": "en-US,en;q=0.9",
-            "Referer": "https://www.nseindia.com/",
-        }
         session.headers.update(headers)
-        session.get("https://www.nseindia.com/", timeout=10)
-        return session, None
-    except Exception as e:
-        return None, str(e)
+        session.get("https://www.nseindia.com", timeout=5)
+        
+        url = "https://www.nseindia.com/api/equity-stockIndices?index=NIFTY%2050"
+        r = session.get(url, timeout=5)
+        r.raise_for_status()
+        data = r.json()
+        
+        stocks = []
+        for item in data.get("data", []):
+            symbol = item.get("symbol", "")
+            if symbol in ("NIFTY 50", "NIFTY", ""):
+                continue
+            ltp = item.get("lastPrice", 0)
+            if ltp > 0:
+                stocks.append({
+                    "Symbol": symbol,
+                    "LTP": float(ltp),
+                    "Change%": float(item.get("pChange", 0)),
+                })
+        if stocks:
+            return stocks, None
+    except Exception:
+        pass
+
+    # NSE பிழை வந்தால் yfinance வழியாக எடுக்கும்
+    fallback = get_fallback_breadth()
+    if fallback:
+        return fallback, None
+    return None, "Market breadth data currently unavailable."
 
 
 def init_paper_trades():
@@ -43,20 +94,17 @@ def init_paper_trades():
         st.session_state.paper_trades = []
 
 
-# Nifty-ன் தற்போதைய லாட் அளவு 25
 def add_paper_trade(strike, opt_type, entry_price, qty=25):
-    st.session_state.paper_trades.append(
-        {
-            "id": len(st.session_state.paper_trades) + 1,
-            "strike": strike,
-            "type": opt_type,
-            "entry": entry_price,
-            "qty": qty,
-            "exit": None,
-            "pnl": 0.0,
-            "status": "OPEN",
-        }
-    )
+    st.session_state.paper_trades.append({
+        "id": len(st.session_state.paper_trades) + 1,
+        "strike": strike,
+        "type": opt_type,
+        "entry": entry_price,
+        "qty": qty,
+        "exit": None,
+        "pnl": 0.0,
+        "status": "OPEN",
+    })
 
 
 def close_paper_trade(trade_id, exit_price):
@@ -69,9 +117,7 @@ def close_paper_trade(trade_id, exit_price):
 
 
 def calc_paper_pnl():
-    closed = [
-        t for t in st.session_state.paper_trades if t.get("status") == "CLOSED"
-    ]
+    closed = [t for t in st.session_state.paper_trades if t.get("status") == "CLOSED"]
     if not closed:
         return 0.0, 0, 0
     wins = sum(1 for t in closed if t.get("pnl", 0) > 0)
@@ -82,49 +128,12 @@ def calc_paper_pnl():
 
 def to_csv_download(df, filename, label="Download CSV"):
     csv = df.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        label=label,
-        data=csv,
-        file_name=filename,
-        mime="text/csv",
-    )
-
-
-@st.cache_data(ttl=60)
-def get_nifty50_breadth():
-    session, err = get_nse_session()
-    if session is None:
-        return None, err
-    try:
-        r = session.get(
-            "https://www.nseindia.com/api/equity-stockIndices?index=NIFTY%2050",
-            timeout=10,
-        )
-        r.raise_for_status()
-        data = r.json()
-        stocks = []
-        for item in data.get("data", []):
-            symbol = item.get("symbol", "")
-            if symbol in ("NIFTY 50", "NIFTY", ""):
-                continue
-            ltp = item.get("lastPrice", 0)
-            if ltp > 0:
-                stocks.append(
-                    {
-                        "Symbol": symbol,
-                        "LTP": float(ltp),
-                        "Change%": float(item.get("pChange", 0)),
-                    }
-                )
-        return stocks, None
-    except Exception as e:
-        return None, str(e)
+    st.download_button(label=label, data=csv, file_name=filename, mime="text/csv")
 
 
 # ============ MAIN APP ============
 try:
     hist = get_stock_data("^NSEI", "5d", "5m")
-    daily = get_stock_data("^NSEI", "5d", "1d")
 
     if hist.empty:
         st.error("Nifty data unavailable.")
@@ -142,14 +151,13 @@ try:
     session_hist = hist[hist.index.date == session_date].copy()
 
     if session_hist.empty:
-        st.error("No session data.")
-        st.stop()
+        session_hist = hist.copy()
 
     spot_price = float(session_hist["Close"].iloc[-1])
     st.metric("NIFTY 50", f"Rs {spot_price:,.2f}")
 
     st.markdown("---")
-    st.subheader("Market Breadth - Nifty 50 Live %")
+    st.subheader("Market Breadth - Nifty Live %")
 
     breadth_stocks, breadth_err = get_nifty50_breadth()
 
@@ -158,9 +166,7 @@ try:
     else:
         advances = sum(1 for s in breadth_stocks if s["Change%"] > 0.05)
         declines = sum(1 for s in breadth_stocks if s["Change%"] < -0.05)
-        avg_chg = sum(s["Change%"] for s in breadth_stocks) / len(
-            breadth_stocks
-        )
+        avg_chg = sum(s["Change%"] for s in breadth_stocks) / len(breadth_stocks)
 
         m1, m2, m3 = st.columns(3)
         with m1:
@@ -170,27 +176,20 @@ try:
         with m3:
             st.metric("Avg Change", f"{avg_chg:+.2f}%")
 
-        sorted_stocks = sorted(
-            breadth_stocks, key=lambda x: x["Change%"], reverse=True
-        )
+        sorted_stocks = sorted(breadth_stocks, key=lambda x: x["Change%"], reverse=True)
 
         g_col, l_col = st.columns(2)
         with g_col:
-            st.markdown("### Top 5 Gainers")
+            st.markdown("### Top Gainers")
             for s in sorted_stocks[:5]:
-                st.write(
-                    f"{s['Symbol']}: Rs {s['LTP']:,.2f} ({s['Change%']:+.2f}%)"
-                )
+                st.write(f"{s['Symbol']}: Rs {s['LTP']:,.2f} ({s['Change%']:+.2f}%)")
         with l_col:
-            st.markdown("### Top 5 Losers")
+            st.markdown("### Top Losers")
             for s in sorted_stocks[-5:][::-1]:
-                st.write(
-                    f"{s['Symbol']}: Rs {s['LTP']:,.2f} ({s['Change%']:+.2f}%)"
-                )
+                st.write(f"{s['Symbol']}: Rs {s['LTP']:,.2f} ({s['Change%']:+.2f}%)")
 
     st.markdown("---")
-    st.subheader("Paper Trading (Virtual - No Real Orders)")
-    st.caption("Virtual trades only. No real orders.")
+    st.subheader("Paper Trading (Virtual)")
 
     init_paper_trades()
     total_pnl, wins, losses = calc_paper_pnl()
@@ -208,7 +207,7 @@ try:
     with st.expander("New Virtual Trade"):
         c1, c2, c3 = st.columns(3)
         with c1:
-            pt_strike = st.number_input("Strike", value=24000, step=50)
+            pt_strike = st.number_input("Strike", value=23150, step=50)
         with c2:
             pt_type = st.selectbox("Type", ["CE", "PE"])
         with c3:
@@ -219,22 +218,13 @@ try:
             st.success("Trade added")
             st.rerun()
 
-    open_trades = [
-        t for t in st.session_state.paper_trades if t["status"] == "OPEN"
-    ]
+    open_trades = [t for t in st.session_state.paper_trades if t["status"] == "OPEN"]
     if open_trades:
         with st.expander("Close Open Trade"):
             tc1, tc2 = st.columns(2)
             with tc1:
-                trade_opts = {
-                    f"ID {t['id']} - {t['strike']} {t['type']} @ {t['entry']}": t[
-                        "id"
-                    ]
-                    for t in open_trades
-                }
-                selected_label = st.selectbox(
-                    "Select Trade", list(trade_opts.keys())
-                )
+                trade_opts = {f"ID {t['id']} - {t['strike']} {t['type']} @ {t['entry']}": t["id"] for t in open_trades}
+                selected_label = st.selectbox("Select Trade", list(trade_opts.keys()))
             with tc2:
                 exit_price = st.number_input("Exit Price", value=110.0, step=5.0)
 
@@ -244,11 +234,7 @@ try:
                 st.rerun()
 
     if st.session_state.paper_trades:
-        st.dataframe(
-            pd.DataFrame(st.session_state.paper_trades),
-            hide_index=True,
-            use_container_width=True,
-        )
+        st.dataframe(pd.DataFrame(st.session_state.paper_trades), hide_index=True, use_container_width=True)
 
     st.markdown("---")
     st.subheader("Export Data")
@@ -256,19 +242,11 @@ try:
     e1, e2 = st.columns(2)
     with e1:
         if breadth_stocks:
-            to_csv_download(
-                pd.DataFrame(breadth_stocks), "breadth.csv", "Breadth CSV"
-            )
+            to_csv_download(pd.DataFrame(breadth_stocks), "breadth.csv", "Breadth CSV")
     with e2:
         if st.session_state.paper_trades:
-            to_csv_download(
-                pd.DataFrame(st.session_state.paper_trades),
-                "paper_trades.csv",
-                "Paper Trades CSV",
-            )
-
-    st.success("App loaded successfully!")
+            to_csv_download(pd.DataFrame(st.session_state.paper_trades), "paper_trades.csv", "Paper Trades CSV")
 
 except Exception as e:
     st.error(f"Error: {e}")
-    
+                
