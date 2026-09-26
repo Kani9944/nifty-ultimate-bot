@@ -13,7 +13,7 @@ st.set_page_config(
     page_title="Nifty AI Pro - Monitoring Terminal", layout="wide"
 )
 st_autorefresh(interval=30 * 1000, key="nifty_pro_refresh")
-st.title("🦅 NIFTY 50 - Smart Money & Market Monitor")
+st.title("🦅 நிஃப்டி 50 - ஸ்மார்ட் மணி & மார்க்கெட் மானிட்டர்")
 
 
 # எண்களை லட்சங்களில் (Lakhs) காட்டும் உதவி முறை
@@ -21,37 +21,6 @@ def format_lakhs(val):
   if val is None or pd.isna(val):
     return "0.00L"
   return f"{val / 100000:,.2f}L"
-
-
-# ஆங்கிலச் செய்திகளைத் தமிழில் மாற்றும் முறை
-def translate_to_tamil(text):
-  replacements = {
-      "Taking Stock:": "சந்தை நிலவரம்:",
-      "Mid-day Mood |": "மத்திய நேர நிலவரம் |",
-      "Sensex, Nifty": "சென்செக்ஸ், நிஃப்டி",
-      "gain for third day in a row": "தொடர்ந்து 3-வது நாளாக உயர்வு",
-      "easing volatility to support bull trend": (
-          "குறைந்த ஏற்ற இறக்கம் ஏற்றத்திற்கு ஆதரவு"
-      ),
-      "Market fails to hold on to day's gains, ends marginally higher": (
-          "ஆரம்ப லாபத்தை தக்கவைக்க முடியாமல் குறைந்த லாபத்தில் முடிந்த சந்தை"
-      ),
-      "Cooling volatility sparks market rally": (
-          "குறைந்த ஏற்ற இறக்கத்தால் சந்தையில் ஏற்றம்"
-      ),
-      "India VIX sees steepest fall in 4 years": (
-          "இந்தியா VIX 4 ஆண்டுகளில் இல்லாத அளவு கடும் சரிவு"
-      ),
-      "net profit falls": "நிகர லாபம் சரிந்தது",
-      "net profit, revenue decline": "நிகர லாபம், வருவாய் சரிவு",
-      "insurer announces dividend": "டிவிடெண்ட் அறிவிப்பு",
-      "declares dividend of": "பங்கிற்கு டிவிடெண்ட் அறிவிப்பு:",
-      "per share": "",
-      "to focus on growing": "வளர்ச்சியில் கவனம் செலுத்துகிறது",
-  }
-  for eng, tam in replacements.items():
-    text = text.replace(eng, tam)
-  return text
 
 
 # கேச்சிங் முறைகள்
@@ -75,36 +44,34 @@ def get_heavyweight_intraday(symbol):
   return yf.Ticker(symbol).history(period="1d", interval="5m")
 
 
-# சந்தை செய்திகள் ஃபீட் (தானியங்கித் தமிழாக்கத்துடன்)
+# தமிழ் நேரலை வணிகச் செய்திகள் (Tamil Business News RSS)
 @st.cache_data(ttl=300)
 def get_market_news():
-  fallback = ["📰 சந்தை செய்திகள் தற்போது கிடைக்கவில்லை."]
-  market_feeds = [
-      "https://www.moneycontrol.com/rss/marketreports.xml",
-      "https://www.moneycontrol.com/rss/business.xml",
-      "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
-      "https://www.livemint.com/rss/markets",
+  fallback = ["📰 தமிழ் வணிகச் செய்திகள் தற்போது கிடைக்கவில்லை."]
+  tamil_feeds = [
+      "https://tamil.goodreturns.in/rss/tamil-money-fb.xml",
+      "https://tamil.oneindia.com/rss/feeds/tamil-news-fb.xml",
+      "https://www.dinamani.com/rss/business.xml",
+      "https://www.dinamalar.com/rss.asp",
   ]
   all_news = []
   headers = {"User-Agent": "Mozilla/5.0"}
-  for feed_url in market_feeds:
+  for feed_url in tamil_feeds:
     try:
       r = requests.get(feed_url, headers=headers, timeout=5)
-      r.raise_for_status()
-      feed = feedparser.parse(r.content)
-      for entry in feed.entries[:3]:
-        title = entry.get("title", "").strip()
-        link = entry.get("link", "")
-        if not title:
-          continue
-
-        tamil_title = translate_to_tamil(title)
-        if link:
-          all_news.append(f"📰 [{tamil_title}]({link})")
-        else:
-          all_news.append(f"📰 {tamil_title}")
-      if len(all_news) >= 6:
-        break
+      if r.status_code == 200:
+        feed = feedparser.parse(r.content)
+        for entry in feed.entries[:3]:
+          title = entry.get("title", "").strip()
+          link = entry.get("link", "")
+          if not title:
+            continue
+          if link:
+            all_news.append(f"📰 [{title}]({link})")
+          else:
+            all_news.append(f"📰 {title}")
+        if len(all_news) >= 6:
+          break
     except Exception:
       continue
 
@@ -149,12 +116,12 @@ def get_previous_close_for_session(daily_data, target_date):
 
 def trend_label(price, indicator):
   if pd.isna(indicator):
-    return "⚪ Insufficient data"
+    return "⚪ போதிய தரவு இல்லை"
   if indicator == 0:
-    return "⚪ N/A"
+    return "⚪ கிடைக்கவில்லை"
   if abs((price - indicator) / indicator * 100) < 0.01:
-    return "⚪ Flat / At Par"
-  return "🟢 Bullish" if price > indicator else "🩸 Bearish"
+    return "⚪ சமநிலை (At Par)"
+  return "🟢 ஏற்றம் (Bullish)" if price > indicator else "🩸 இறக்கம் (Bearish)"
 
 
 # சந்தைத் தரவுகளைப் பெறுதல்
@@ -164,11 +131,11 @@ try:
   bn_hist = get_stock_data("^NSEBANK", "5d", "1d")
   vix_hist = get_stock_data("^INDIAVIX", "5d", "1d")
 except Exception:
-  st.error("Market data source அணுக முடியவில்லை.")
+  st.error("சந்தைத் தரவு மூலத்தை அணுக முடியவில்லை.")
   st.stop()
 
 if hist.empty or len(daily_hist) < 2:
-  st.error("தேவையான சந்தைத் தரவுகள் கிடைக்கவில்லை.")
+  st.error("தேவையான நிஃப்டி சந்தைத் தரவுகள் கிடைக்கவில்லை.")
   st.stop()
 
 try:
@@ -193,7 +160,7 @@ try:
   session_hist = hist[hist.index.date == session_date].copy()
 
   if session_hist.empty:
-    st.error("Intraday data கிடைக்கவில்லை.")
+    st.error("இன்ட்ராடே தரவுகள் கிடைக்கவில்லை.")
     st.stop()
 
   spot_price = float(session_hist["Close"].iloc[-1])
@@ -201,7 +168,7 @@ try:
 
   prev_sessions = daily_hist[pd.Index(daily_hist.index.date) < session_date]
   if prev_sessions.empty:
-    st.error("Daily reference data கிடைக்கவில்லை.")
+    st.error("முந்தைய நாள் ஒப்பீட்டுத் தரவுகள் கிடைக்கவில்லை.")
     st.stop()
 
   prev_day = prev_sessions.iloc[-1]
@@ -217,13 +184,16 @@ try:
   gap_pct = (gap_pts / pdc * 100) if pdc != 0 else 0.0
 
   st.caption(
-      f"📍 **Active session:** {session_date.strftime('%d-%b-%Y')} | 🎯 **CPR"
-      f" ref:** {prev_ref_date.strftime('%d-%b-%Y')} | ⏱️ **Last 5-min bar:**"
-      f" {session_hist.index[-1].strftime('%d-%b-%Y %H:%M IST')}"
+      f"📍 **செயலில் உள்ள அமர்வு:** {session_date.strftime('%d-%b-%Y')} | 🎯"
+      f" **CPR ஒப்பீட்டு நாள்:** {prev_ref_date.strftime('%d-%b-%Y')} | ⏱️"
+      " **கடைசி 5-நிமிட பார்:**"
+      f" {session_hist.index[-1].strftime('%d-%b-%Y %H:%M IST')} | Yahoo Finance"
+      " delayed feed."
   )
 
   bn_curr, bn_chg, _ = get_autonomous_session_change(bn_hist)
   vix_curr, vix_chg, _ = get_autonomous_session_change(vix_hist)
+  vix_val = vix_curr
 
   # CPR கணக்கீடுகள்
   PP = (pdh + pdl + pdc) / 3
@@ -257,17 +227,17 @@ try:
   )
 
   if pd.isna(rsi_val):
-    rsi_status = "⚪ Insufficient data"
+    rsi_status = "⚪ போதிய தரவு இல்லை"
   elif rsi_val >= 70:
-    rsi_status = "🚨 Overbought (>70)"
+    rsi_status = "🚨 அதிக வாங்குதல் (>70 Overbought)"
   elif rsi_val >= 60:
-    rsi_status = "🟢 Bullish Bias (60-70)"
+    rsi_status = "🟢 ஏற்றச் சாய்வு (60-70 Bullish)"
   elif rsi_val <= 30:
-    rsi_status = "🟢 Oversold (<30)"
+    rsi_status = "🟢 அதிக விற்பனை (<30 Oversold)"
   elif rsi_val <= 40:
-    rsi_status = "🩸 Bearish Bias (30-40)"
+    rsi_status = "🩸 இறக்கச் சாய்வு (30-40 Bearish)"
   else:
-    rsi_status = "⚖️ Neutral Zone (40-60)"
+    rsi_status = "⚖️ நடுநிலை மண்டலம் (40-60 Neutral)"
 
   vwap_ok = (spot_price >= vwap_val) or (
       abs(spot_price - vwap_val) / vwap_val < 0.0001
@@ -284,47 +254,57 @@ try:
   top1, top2 = st.columns([1.5, 1])
   with top1:
     m1, m2, m3 = st.columns(3)
-    m1.metric("📊 NIFTY 50", f"₹{spot_price:,.2f}", f"{change:+,.2f} ({pct_change:+.2f}%)")
+    m1.metric("📊 நிஃப்டி 50", f"₹{spot_price:,.2f}", f"{change:+,.2f} ({pct_change:+.2f}%)")
     if bn_curr:
-      m2.metric("🏦 BANK NIFTY", f"₹{bn_curr:,.2f}", f"{bn_chg:+.2f}%")
+      m2.metric("🏦 பேங்க் நிஃப்டி", f"₹{bn_curr:,.2f}", f"{bn_chg:+.2f}%")
     if vix_curr:
       m3.metric(
-          "⚡ INDIA VIX", f"{vix_curr:.2f}", f"{vix_chg:+.2f}%", delta_color="inverse"
+          "⚡ இந்தியா VIX", f"{vix_curr:.2f}", f"{vix_chg:+.2f}%", delta_color="inverse"
       )
 
   with top2:
     if score >= 4:
-      st.success(f"🟢 **Structure Alignment: Bullish ({score}/5)**")
+      st.success(
+          f"🟢 **சந்தை கட்டமைப்பு: ஏற்றப் போக்கு (Bullish {score}/5)**\nதொழில்நுட்ப"
+          " நிலைகள் மேல்நோக்கிய நகர்வுக்குச் சாதகமாக உள்ளன."
+      )
     elif score <= 1:
-      st.error(f"🔴 **Structure Alignment: Bearish ({score}/5)**")
+      st.error(
+          f"🔴 **சந்தை கட்டமைப்பு: இறக்கப் போக்கு (Bearish {score}/5)**\nவிற்பனை"
+          " அழுத்தம் அதிகமாக உள்ளது."
+      )
     else:
-      st.warning(f"🟡 **Structure Alignment: Mixed ({score}/5)**")
+      st.warning(
+          f"🟡 **சந்தை கட்டமைப்பு: சமநிலை (Mixed {score}/5)**\nதெளிவான"
+          " பிரேக்அவுட் வரை காத்திருக்கவும்."
+      )
 
-  # அலர்ட் பார்
+  # கேப் & வாலட்டிலிட்டி பார்
   g_col, v_col = st.columns(2)
   if gap_pts >= 40:
-    g_col.success(f"🚀 **Gap-Up Open:** +{gap_pts:,.1f} pts ({gap_pct:+.2f}%)")
+    g_col.success(f"🚀 **கேப்-அப் துவக்கம்:** +{gap_pts:,.1f} புள்ளிகள் ({gap_pct:+.2f}%)")
   elif gap_pts <= -40:
-    g_col.error(f"🩸 **Gap-Down Open:** {gap_pts:,.1f} pts ({gap_pct:+.2f}%)")
+    g_col.error(f"🩸 **கேப்-டவுன் துவக்கம்:** {gap_pts:,.1f} புள்ளிகள் ({gap_pct:+.2f}%)")
   else:
-    g_col.info(f"⚖️ **Normal Open:** {gap_pts:+,.1f} pts ({gap_pct:+.2f}%)")
+    g_col.info(f"⚖️ **சாதாரண துவக்கம்:** {gap_pts:+,.1f} புள்ளிகள் ({gap_pct:+.2f}%)")
 
   if vix_curr and vix_curr >= 18:
-    v_col.error("🚨 **High Volatility (VIX > 18)**")
+    v_col.error("🚨 **அதிக ஏற்ற இறக்கம் (VIX > 18):** Trailing Stoploss அவசியம்.")
   elif vix_chg and vix_chg >= 4.0:
-    v_col.warning("⚠️ **VIX Spike (+4%)**")
+    v_col.warning("⚠️ **VIX ஸ்பைக் (+4%):** ஹெட்ஜிங் வேகம் அதிகரித்துள்ளது.")
   else:
-    v_col.info("🟢 **Normal Volatility**")
+    v_col.info("🟢 **இயல்பான ஏற்ற இறக்கம்:** VIX அமைதியான வரம்பில் உள்ளது.")
 
-  # ஸ்ட்ரைக் வாரியான மாதிரி பகுப்பாய்வு
+  # ஸ்ட்ரைக் வாரியான பகுப்பாய்வு
   st.markdown("---")
-  st.subheader("🎯 Strike-wise Call vs Put Analysis")
+  st.subheader("🎯 ஸ்ட்ரைக் வாரியான கால் vs புட் பகுப்பாய்வு (மாதிரி மதிப்பீடு)")
   atm = int(round(spot_price / 50) * 50)
   Rows = []
   tot_call = 0
   tot_put = 0
 
-  for strike in [atm + (i * 50) for i in range(-2, 3)]:
+  strike_range = [atm + (i * 50) for i in range(-2, 3)]
+  for strike in strike_range:
     diff = (spot_price - strike) / 50.0
     cd = round(float(np.clip(0.5 + (diff * 0.12), 0.10, 0.95)), 2)
     pd_val = round(float(cd - 1.0), 2)
@@ -344,33 +324,45 @@ try:
         "changeinOpenInterest": int(put_oi * 0.09),
     }
     signal = (
-        "🟢 Put Support"
+        "🟢 புட் ஆதரவு (Support)"
         if (put_oi * abs(pd_val)) > (call_oi * cd)
-        else "🔴 Call Resistance"
+        else "🔴 கால் தடை (Resistance)"
     )
 
     Rows.append({
-        "Strike": f"₹{strike:,}" + (" 🎯 ATM" if strike == atm else ""),
+        "ஸ்ட்ரைக்": f"₹{strike:,}" + (" 🎯 ATM" if strike == atm else ""),
         "Call OI": format_lakhs(call_oi),
-        "Call Chg": format_lakhs(ce.get("changeinOpenInterest", 0)),
+        "Call மாற்றம்": format_lakhs(ce.get("changeinOpenInterest", 0)),
         "Call LTP": f"₹{ce.get('lastPrice', 0):.2f}",
         "Put LTP": f"₹{pe.get('lastPrice', 0):.2f}",
-        "Put Chg": format_lakhs(pe.get("changeinOpenInterest", 0)),
+        "Put மாற்றம்": format_lakhs(pe.get("changeinOpenInterest", 0)),
         "Put OI": format_lakhs(put_oi),
-        "Signal": signal,
+        "சிக்னல்": signal,
     })
 
   st.dataframe(pd.DataFrame(Rows), hide_index=True, use_container_width=True)
-  st.caption(
-      f"Expiry: Current Weekly | "
-      f"Total Call OI: {format_lakhs(tot_call)} | "
-      f"Total Put OI: {format_lakhs(tot_put)}"
-  )
 
-  # ஹெவிவெயிட்கள்
+  # PCR மற்றும் Max Pain பகுப்பாய்வு
+  pcr_val = tot_put / tot_call if tot_call > 0 else 0
+  max_pain_strike = atm
+
+  pa, pb, pc = st.columns(3)
+  with pa:
+    if pcr_val > 1.2:
+      st.metric("PCR (OI)", f"{pcr_val:.2f}", "ஏற்றப் போக்கு (Bullish)")
+    elif pcr_val < 0.8:
+      st.metric("PCR (OI)", f"{pcr_val:.2f}", "இறக்கப் போக்கு (Bearish)")
+    else:
+      st.metric("PCR (OI)", f"{pcr_val:.2f}", "சமநிலை (Neutral)")
+  with pb:
+    st.metric("மேக்ஸ் பெயின் (Max Pain)", f"₹{max_pain_strike:,}")
+  with pc:
+    st.metric("ஸ்பாட் விலை (Spot)", f"₹{spot_price:,.2f}")
+
+  # ஹெவிவெயிட்கள் கண்காணிப்பு
   st.markdown("---")
-  st.subheader("🏢 Nifty Heavyweights Tracker")
-  live_hw = st.toggle("Use 5-minute intraday heavyweights", value=False)
+  st.subheader("🏢 நிஃப்டி முக்கிய பங்குகள் (Heavyweights Tracker)")
+  live_hw = st.toggle("5-நிமிட இன்ட்ராடே விலையைப் பயன்படுத்து", value=False)
   heavy_syms = {
       "HDFC Bank": "HDFCBANK.NS",
       "Reliance": "RELIANCE.NS",
@@ -406,212 +398,242 @@ try:
             chg = ((c_p - p_p) / p_p * 100) if p_p != 0 else 0.0
             st.metric(label=name, value=f"₹{c_p:,.1f}", delta=f"{chg:+.2f}%")
       except Exception:
-        st.caption(f"{name}: N/A")
+        st.caption(f"{name}: விவரமில்லை")
 
   # CPR & தொழில்நுட்ப நிலைகள்
   st.markdown("---")
   c1, c2 = st.columns(2)
   with c1:
-    st.subheader("🎯 Liquidity & Trap Zones (PDH / PDL)")
-    st.write(f"🔺 **PDH:** ₹{pdh:,.2f}  |  🔻 **PDL:** ₹{pdl:,.2f}")
+    st.subheader("🎯 முக்கிய லிக்விடிட்டி நிலைகள் (PDH / PDL)")
+    st.write(
+        f"🔺 **நேற்றைய உச்சம் (PDH):** ₹{pdh:,.2f}  |  🔻 **நேற்றைய வீழ்ச்சி"
+        f" (PDL):** ₹{pdl:,.2f}"
+    )
     st.markdown("---")
-    st.subheader("📌 Normalized CPR & Pivots")
+    st.subheader("📌 CPR & Pivot நிலைகள்")
     if cpr_w_pct < 0.20:
-      st.success(f"🔥 **Narrow CPR ({cpr_w_pct:.2f}%):** Breakout சாத்தியம்.")
+      st.success(
+          f"🔥 **குறுகிய CPR ({cpr_w_pct:.2f}% Narrow):** பெரிய பிரேக்அவுட்"
+          " சாத்தியம்."
+      )
     elif cpr_w_pct > 0.35:
-      st.warning(f"⚠️ **Wide CPR ({cpr_w_pct:.2f}%):** Range-bound சாத்தியம்.")
+      st.warning(
+          f"⚠️ **அகன்ற CPR ({cpr_w_pct:.2f}% Wide):** குறிப்பிட்ட வரம்பிற்குள்"
+          " (Range-bound) வர்த்தகம்."
+      )
     else:
-      st.info(f"⚖️ **Normal CPR ({cpr_w_pct:.2f}%)**")
-    st.write(f"🔴 **R2:** ₹{R2:,.2f}  |  🔴 **R1:** ₹{R1:,.2f}")
-    st.success(f"🎯 **CPR (BC-PP-TC):** ₹{BC:,.2f} - ₹{PP:,.2f} - ₹{TC:,.2f}")
-    st.write(f"🟢 **S1:** ₹{S1:,.2f}  |  🟢 **S2:** ₹{S2:,.2f}")
+      st.info(f"⚖️ **சாதாரண CPR ({cpr_w_pct:.2f}% Normal):** சமநிலையான சந்தை.")
+    st.write(f"🔴 **ரெசிஸ்டன்ஸ் 2 (R2):** ₹{R2:,.2f}")
+    st.write(f"🔴 **ரெசிஸ்டன்ஸ் 1 (R1):** ₹{R1:,.2f}")
+    st.success(
+        f"🎯 **CPR மண்டலம் (BC-PP-TC):** ₹{BC:,.2f} - ₹{PP:,.2f} - ₹{TC:,.2f}"
+    )
+    st.write(f"🟢 **சப்போர்ட் 1 (S1):** ₹{S1:,.2f}")
+    st.write(f"🟢 **சப்போர்ட் 2 (S2):** ₹{S2:,.2f}")
 
   with c2:
-    st.subheader("📈 Technical Indicators")
+    st.subheader("📈 தொழில்நுட்ப குறிகாட்டிகள் (Indicators)")
     st.write(f"🔹 **EMA 9:** ₹{ema9_val:,.2f} ➔ {trend_label(spot_price, ema9_val)}")
     st.write(
-        f"🔹 **EMA 21:** ₹{ema21_val:,.2f} ➔ {trend_label(spot_price, ema21_val)}"
+        f"🔹 **EMA 21:**"
+        f" {f'₹{ema21_val:,.2f}'} ➔ {trend_label(spot_price, ema21_val)}"
     )
-    st.write(f"🔹 **VWAP:** ₹{vwap_val:,.2f} ➔ {trend_label(spot_price, vwap_val)}")
+    st.write(
+        f"🔹 **Session VWAP:**"
+        f" {f'₹{vwap_val:,.2f}'} ➔ {trend_label(spot_price, vwap_val)}"
+    )
     st.write(f"🔹 **RSI (14):** {rsi_val:.2f} ➔ {rsi_status}")
     st.markdown("---")
-    st.subheader("🌐 நேரலை சந்தை செய்திகள்")
+    st.subheader("🌐 தமிழ் வணிகச் செய்திகள் (Tamil News)")
     for n in get_market_news():
       st.write(n)
 
-  # சார்ட் பகுதி
+  # நேரலை எச்சரிக்கைகள் (Live Alerts)
   st.markdown("---")
-  st.subheader(
-      "📈 NIFTY 50 - Intraday Chart"
-      + (
-          ""
-          if session_date == today_ist
-          else f" ({session_date.strftime('%d-%b-%Y')})"
+  st.subheader("🔔 நேரலை சந்தை எச்சரிக்கைகள்")
+  alerts = []
+  if pd.notna(ema9_val) and pd.notna(ema21_val):
+    if ema9_val > ema21_val:
+      alerts.append(
+          f"🟢 **EMA ஏற்றப் போக்கு** — EMA 9 ({ema9_val:,.2f}) > EMA 21"
+          f" ({ema21_val:,.2f})"
       )
-  )
+    else:
+      alerts.append(
+          f"🔴 **EMA இறக்கப் போக்கு** — EMA 9 ({ema9_val:,.2f}) < EMA 21"
+          f" ({ema21_val:,.2f})"
+      )
 
-  cdf = session_hist[["Close", "VWAP"]].copy()
-  cdf["Time"] = cdf.index
-  cdf = cdf.reset_index(drop=True)
-  if cdf["VWAP"].isna().all():
-    cdf["VWAP"] = cdf["Close"]
-    st.caption(
-        "ℹ️ **VWAP Note:** Volume இல்லாததால் VWAP விலைக்கோட்டுடன் proxy-யாகக்"
-        " காட்டப்படுகிறது."
+  if pd.notna(vwap_val):
+    if spot_price > vwap_val:
+      alerts.append(
+          f"🟢 **VWAP-க்கு மேல் வர்த்தகம்** — விலை ₹{spot_price:,.2f} > VWAP"
+          f" ₹{vwap_val:,.2f} (வாங்குவோர் ஆதிக்கம்)"
+      )
+    else:
+      alerts.append(
+          f"🔴 **VWAP-க்கு கீழ் வர்த்தகம்** — விலை ₹{spot_price:,.2f} < VWAP"
+          f" ₹{vwap_val:,.2f} (விற்போர் அழுத்தம்)"
+      )
+
+  if pd.notna(rsi_val):
+    if rsi_val >= 70:
+      alerts.append(
+          f"⚠️ **RSI அதிக வாங்குதல் (Overbought)** ({rsi_val:.1f}) — இறக்கம் வரலாம்"
+      )
+    elif rsi_val <= 30:
+      alerts.append(
+          f"🟢 **RSI அதிக விற்பனை (Oversold)** ({rsi_val:.1f}) — மீண்டெழ வாய்ப்பு"
+      )
+    elif rsi_val >= 60:
+      alerts.append(f"🟢 **RSI ஏற்றச் சாய்வு (Bullish Bias)** ({rsi_val:.1f})")
+    elif rsi_val <= 40:
+      alerts.append(f"🩸 **RSI இறக்கச் சாய்வு (Bearish Bias)** ({rsi_val:.1f})")
+
+  if spot_price > pdh:
+    alerts.append(
+        "🚀 **நேற்றைய உச்சம் உடைப்பு (PDH Breakout)** —"
+        f" ₹{pdh:,.2f}-க்கு மேல் நிலை கொண்டுள்ளது"
+    )
+  elif spot_price < pdl:
+    alerts.append(
+        "🩸 **நேற்றைய வீழ்ச்சி உடைப்பு (PDL Breakdown)** —"
+        f" ₹{pdl:,.2f}-க்கு கீழ் இறங்கியுள்ளது"
     )
 
-  c_start = cdf["Time"].min()
-  c_end = cdf["Time"].max() + pd.Timedelta(minutes=16)
+  if vix_val is not None and vix_val >= 18:
+    alerts.append(
+        f"🚨 **அதிக VIX ஏற்ற இறக்கம்** — {vix_val:.2f} (ஹெட்ஜிங் பாதுகாப்பு"
+        " அவசியம்)"
+    )
 
-  ldf = pd.DataFrame([
-      {"Level": "PDH", "Value": pdh, "Color": "#cc0000"},
-      {"Level": "R1", "Value": R1, "Color": "#ff9999"},
-      {"Level": "TC", "Value": TC, "Color": "#66b3ff"},
-      {"Level": "Pivot", "Value": PP, "Color": "#0066cc"},
-      {"Level": "BC", "Value": BC, "Color": "#66b3ff"},
-      {"Level": "S1", "Value": S1, "Color": "#85e085"},
-      {"Level": "PDL", "Value": pdl, "Color": "#009900"},
+  if alerts:
+    for a in alerts:
+      st.markdown(f"- {a}")
+  else:
+    st.caption("தற்போது நேரலை எச்சரிக்கைகள் ஏதுமில்லை.")
+
+  # சார்ட் பகுதி (முழுமையாகத் தமிழில் + Auto Locked Scale)
+  st.markdown("---")
+  st.subheader("📈 நிஃப்டி இன்ட்ராடே சார்ட் - விலை / VWAP / CPR")
+
+  chart_df = session_hist[["Close", "VWAP"]].copy()
+  chart_df["Time"] = chart_df.index
+  chart_df = chart_df.reset_index(drop=True)
+
+  if chart_df["VWAP"].isna().all():
+    chart_df["VWAP"] = chart_df["Close"]
+    st.caption(
+        "ℹ️ **VWAP Note:** வால்யூம் கிடைக்காததால், VWAP விலைக்கோட்டுடன்"
+        " proxy-யாகக் காட்டப்படுகிறது."
+    )
+
+  chart_start = chart_df["Time"].min()
+  chart_end = chart_df["Time"].max() + pd.Timedelta(minutes=25)
+  label_x_pos = chart_df["Time"].max() + pd.Timedelta(minutes=3)
+
+  levels_data = pd.DataFrame([
+      {
+          "Level": "PDH",
+          "Value": float(pdh),
+          "Color": "#cc0000",
+          "LabelX": label_x_pos,
+      },
+      {
+          "Level": "R1",
+          "Value": float(R1),
+          "Color": "#ff6666",
+          "LabelX": label_x_pos,
+      },
+      {
+          "Level": "TC",
+          "Value": float(TC),
+          "Color": "#66b3ff",
+          "LabelX": label_x_pos,
+      },
+      {
+          "Level": "Pivot",
+          "Value": float(PP),
+          "Color": "#0066cc",
+          "LabelX": label_x_pos,
+      },
+      {
+          "Level": "BC",
+          "Value": float(BC),
+          "Color": "#3399ff",
+          "LabelX": label_x_pos,
+      },
+      {
+          "Level": "S1",
+          "Value": float(S1),
+          "Color": "#66cc66",
+          "LabelX": label_x_pos,
+      },
+      {
+          "Level": "PDL",
+          "Value": float(pdl),
+          "Color": "#009900",
+          "LabelX": label_x_pos,
+      },
   ])
-  ldf["Time"] = cdf["Time"].max() + pd.Timedelta(minutes=3)
 
-  all_p = [
-      p
-      for p in (
-          list(cdf["Close"])
-          + list(cdf["VWAP"].dropna())
-          + list(ldf["Value"])
-      )
-      if pd.notna(p) and p > 1000
+  vwap_df = chart_df.dropna(subset=["VWAP"]).copy()
+
+  all_key_values = (
+      chart_df["Close"].tolist()
+      + vwap_df["VWAP"].tolist()
+      + levels_data["Value"].tolist()
+  )
+  valid_vals = [
+      float(v)
+      for v in all_key_values
+      if pd.notna(v)
+      and np.isfinite(v)
+      and (spot_price - 400) <= v <= (spot_price + 400)
   ]
-  y_min, y_max = float(min(all_p) - 30), float(max(all_p) + 30)
 
-  y_sc = alt.Scale(
-      domain=[y_min, y_max],
-      clamp=True,
-      zero=False,
-      nice=False,
-      padding=0,
+  if valid_vals:
+    y_min = float(min(valid_vals) - 20)
+    y_max = float(max(valid_vals) + 20)
+  else:
+    y_min = float(spot_price - 250)
+    y_max = float(spot_price + 250)
+
+  x_scale = alt.Scale(domain=[chart_start, chart_end])
+  y_scale = alt.Scale(
+      domain=[y_min, y_max], clamp=True, zero=False, nice=False, padding=0
   )
 
-  cpr_box = pd.DataFrame(
-      [{"_S": c_start, "_E": c_end, "_L": float(BC), "_U": float(TC)}]
-  )
-  cpr_b = (
-      alt.Chart(cpr_box)
-      .mark_rect(color="#9ecae1", opacity=0.18)
-      .encode(
-          x=alt.X("_S:T"),
-          x2="_E:T",
-          y=alt.Y("_L:Q", scale=y_sc),
-          y2="_U:Q",
-          tooltip=alt.value(None),
-      )
-  )
-
-  rules = (
-      alt.Chart(ldf)
-      .mark_rule(strokeDash=[4, 4], strokeWidth=1.2)
-      .encode(
-          y=alt.Y("Value:Q", scale=y_sc),
-          color=alt.Color("Color:N", scale=None, legend=None),
-          tooltip=alt.value(None),
-      )
-  )
-
-  labels = (
-      alt.Chart(ldf)
-      .mark_text(align="left", dx=8, dy=-4, fontSize=11, fontWeight="bold")
-      .encode(
-          x=alt.X("Time:T"),
-          y=alt.Y("Value:Q", scale=y_sc),
-          text=alt.Text("Level:N"),
-          color=alt.Color("Color:N", scale=None, legend=None),
-          tooltip=alt.value(None),
-      )
-  )
-
-  ltp_df = pd.DataFrame([{
-      "Time": cdf["Time"].max() + pd.Timedelta(minutes=3),
-      "Price": spot_price,
-      "Label": f"LTP ₹{spot_price:,.2f}",
-  }])
-  ltp_txt = (
-      alt.Chart(ltp_df)
-      .mark_text(
-          align="left",
-          dx=8,
-          dy=22,
-          fontSize=11,
-          fontWeight="bold",
-          color="#cc0000",
-      )
-      .encode(
-          x=alt.X("Time:T"),
-          y=alt.Y("Price:Q", scale=y_sc),
-          text=alt.Text("Label:N"),
-          tooltip=alt.value(None),
-      )
-  )
-
-  vw_line = (
-      alt.Chart(cdf.dropna(subset=["VWAP"]))
-      .mark_line(color="#ff9900", strokeWidth=2.0, strokeDash=[4, 4])
-      .encode(
-          x=alt.X("Time:T"),
-          y=alt.Y("VWAP:Q", scale=y_sc),
-          tooltip=[
-              alt.Tooltip("Time:T", format="%d-%b %H:%M"),
-              alt.Tooltip("VWAP:Q", format=",.2f"),
-          ],
-      )
-  )
-
-  pt_dot = (
-      alt.Chart(cdf.tail(1))
-      .mark_point(color="#0052cc", filled=True, size=85, shape="circle")
-      .encode(
-          x=alt.X("Time:T"),
-          y=alt.Y("Close:Q", scale=y_sc),
-          tooltip=[
-              alt.Tooltip("Time:T", format="%d-%b %H:%M"),
-              alt.Tooltip("Close:Q", format=",.2f"),
-          ],
-      )
-  )
-
-  p_line = (
-      alt.Chart(cdf)
+  # 1. Price Line
+  price_line = (
+      alt.Chart(chart_df)
       .mark_line(color="#0052cc", strokeWidth=2.5)
       .encode(
           x=alt.X(
               "Time:T",
-              title="Time (IST)",
-              axis=alt.Axis(format="%H:%M", tickCount=8),
-              scale=alt.Scale(domain=[c_start, c_end]),
+              title="நேரம் (IST)",
+              axis=alt.Axis(
+                  format="%H:%M",
+                  tickMinStep=300000,
+                  labelAngle=-45,
+                  labelFontSize=8,
+              ),
+              scale=x_scale,
           ),
-          y=alt.Y("Close:Q", title="Price (₹)", scale=y_sc),
+          y=alt.Y("Close:Q", title="விலை (₹)", scale=y_scale),
           tooltip=[
-              alt.Tooltip("Time:T", format="%d-%b %H:%M"),
-              alt.Tooltip("Close:Q", format=",.2f"),
+              alt.Tooltip("Time:T", title="நேரம்", format="%d-%b %H:%M"),
+              alt.Tooltip("Close:Q", title="விலை", format=",.2f"),
           ],
       )
   )
 
-  final_chart = (
-      (cpr_b + rules + vw_line + pt_dot + labels + ltp_txt + p_line)
-      .resolve_scale(x="shared", y="shared")
-      .properties(
-          height=460, title="NIFTY Intraday Price, VWAP, CPR and Key Levels"
-      )
-  )
-
-  st.altair_chart(final_chart, use_container_width=True)
-  st.caption(
-      "🔵 Price | 🟠 Session VWAP | 🔴 PDH/R1 | 🔵 CPR (TC/Pivot/BC) | 🟢 S1/PDL"
-      " | 🔴 LTP"
-  )
-
-except Exception as e:
-  st.error(f"Analysis pipeline-ல் பிழை: {e}")
-  st.stop()
-    
+  # 2. VWAP Line
+  vwap_line = (
+      alt.Chart(vwap_df)
+      .mark_line(color="#ff9900", strokeWidth=2.0, strokeDash=[3, 3])
+      .encode(
+          x=alt.X("Time:T", scale=x_scale),
+          y=alt.Y("VWAP:Q", scale=y_scale),
+          tooltip=[
+              alt.Tooltip("Time:T", title="நேரம்", format="%d-%b %H:%M")
