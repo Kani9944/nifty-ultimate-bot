@@ -5,3 +5,4 @@ ta
 scipy
 feedparser
 altair
+plotly
