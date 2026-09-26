@@ -56,12 +56,7 @@ if "paper_trade_next_id" not in st.session_state:
 
 
 def add_paper_trade(strike, opt_type, entry_price, qty):
-    st.session_state.paper_trades.append({
-        "id": st.session_state.paper_trade_next_id,
-        "strike": int(strike), "type": opt_type,
-        "entry": float(entry_price), "qty": int(qty),
-        "exit": None, "pnl": 0.0, "status": "OPEN",
-    })
+    st.session_state.paper_trades.append({"id": st.session_state.paper_trade_next_id, "strike": int(strike), "type": opt_type, "entry": float(entry_price), "qty": int(qty), "exit": None, "pnl": 0.0, "status": "OPEN"})
     st.session_state.paper_trade_next_id += 1
 
 
@@ -84,10 +79,7 @@ def get_stock_data(symbol, period, interval=None):
 
 @st.cache_data(ttl=120)
 def get_nifty50_breadth():
-    syms = ["ADANIENT.NS","ASIANPAINT.NS","AXISBANK.NS","BAJFINANCE.NS",
-            "BHARTIARTL.NS","HDFCBANK.NS","ICICIBANK.NS","INFY.NS",
-            "ITC.NS","KOTAKBANK.NS","LT.NS","M&M.NS","MARUTI.NS",
-            "RELIANCE.NS","SBIN.NS","TCS.NS","TATAMOTORS.NS","TITAN.NS"]
+    syms = ["ADANIENT.NS", "ASIANPAINT.NS", "AXISBANK.NS", "BAJFINANCE.NS", "BHARTIARTL.NS", "HDFCBANK.NS", "ICICIBANK.NS", "INFY.NS", "ITC.NS", "KOTAKBANK.NS", "LT.NS", "M&M.NS", "MARUTI.NS", "RELIANCE.NS", "SBIN.NS", "TCS.NS", "TATAMOTORS.NS", "TITAN.NS"]
     stocks = []
     for s in syms:
         try:
@@ -96,11 +88,7 @@ def get_nifty50_breadth():
                 c = float(h["Close"].iloc[-1])
                 p = float(h["Close"].iloc[-2])
                 if p > 0:
-                    stocks.append({
-                        "Symbol": s.replace(".NS", ""),
-                        "LTP": round(c, 2),
-                        "Change%": round(((c - p) / p) * 100, 2),
-                    })
+                    stocks.append({"Symbol": s.replace(".NS", ""), "LTP": round(c, 2), "Change%": round(((c - p) / p) * 100, 2)})
         except Exception:
             pass
     if stocks:
@@ -110,8 +98,7 @@ def get_nifty50_breadth():
 
 @st.cache_data(ttl=120)
 def get_sector_data():
-    sec = {"Bank": "^NSEBANK", "IT": "^CNXIT", "Auto": "^CNXAUTO",
-           "Pharma": "^CNXPHARMA", "FMCG": "^CNXFMCG", "Metal": "^CNXMETAL"}
+    sec = {"Bank": "^NSEBANK", "IT": "^CNXIT", "Auto": "^CNXAUTO", "Pharma": "^CNXPHARMA", "FMCG": "^CNXFMCG", "Metal": "^CNXMETAL"}
     res = {}
     for k, sym in sec.items():
         try:
@@ -128,11 +115,7 @@ def get_sector_data():
 
 @st.cache_data(ttl=300)
 def get_market_news():
-    feeds = [
-        "https://tamil.goodreturns.in/rss/feeds/tamil-money-news-fb.xml",
-        "https://www.moneycontrol.com/rss/marketreports.xml",
-        "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
-    ]
+    feeds = ["https://tamil.goodreturns.in/rss/feeds/tamil-money-news-fb.xml", "https://www.moneycontrol.com/rss/marketreports.xml", "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms"]
     news = []
     for url in feeds:
         try:
@@ -156,13 +139,17 @@ def get_market_news():
     return ["- வர்த்தக செய்திகள் தற்காலிகமாக கிடைக்கவில்லை."]
 
 
-hist = get_stock_data("^NSEI", "5d", "5m")
-daily = get_stock_data("^NSEI", "5d", "1d")
-bn_hist = get_stock_data("^NSEBANK", "2d", "5m")
-vix_hist = get_stock_data("^INDIAVIX", "2d", "5m")
+try:
+    hist = get_stock_data("^NSEI", "5d", "5m")
+    daily = get_stock_data("^NSEI", "5d", "1d")
+    bn_hist = get_stock_data("^NSEBANK", "2d", "5m")
+    vix_hist = get_stock_data("^INDIAVIX", "2d", "5m")
+except Exception:
+    st.error("Market data source unavailable. Try again.")
+    st.stop()
 
 if hist.empty or daily.empty or len(daily) < 2:
-    st.error("Nifty data கிடைக்கவில்லை.")
+    st.error("Nifty data unavailable.")
     st.stop()
 
 hist.index = pd.to_datetime(hist.index)
@@ -182,7 +169,7 @@ session_date = today if (hist.index.date == today).any() else hist.index[-1].dat
 session_hist = hist[hist.index.date == session_date].copy()
 
 if session_hist.empty:
-    st.error("Session data கிடைக்கவில்லை.")
+    st.error("Session data unavailable.")
     st.stop()
 
 spot_price = float(session_hist["Close"].iloc[-1])
@@ -190,7 +177,7 @@ _, nifty_5m = get_last_bar_change(session_hist)
 
 prev_sessions = daily[pd.Index(daily.index.date) < session_date]
 if prev_sessions.empty:
-    st.error("Previous session data கிடைக்கவில்லை.")
+    st.error("Previous session data unavailable.")
     st.stop()
 
 prev_day = prev_sessions.iloc[-1]
@@ -219,20 +206,13 @@ ema9_val = float(hist["Close"].ewm(span=9, adjust=False).mean().iloc[-1])
 ema21_val = float(hist["Close"].ewm(span=21, adjust=False).mean().iloc[-1])
 
 rsi_series = calculate_rsi(hist["Close"], window=14)
-if pd.notna(rsi_series.iloc[-1]):
-    rsi_val = float(rsi_series.iloc[-1])
-else:
-    rsi_val = 50.0
-
-if pd.notna(session_hist["VWAP"].iloc[-1]):
-    vwap_val = float(session_hist["VWAP"].iloc[-1])
-else:
-    vwap_val = spot_price
+rsi_val = float(rsi_series.iloc[-1]) if pd.notna(rsi_series.iloc[-1]) else 50.0
+vwap_val = float(session_hist["VWAP"].iloc[-1]) if pd.notna(session_hist["VWAP"].iloc[-1]) else spot_price
 
 # ===== 1. TOP METRICS =====
-nd = "{:+.2f}% (5m)".format(nifty_5m) if nifty_5m is not None else ""
-bd = "{:+.2f}% (5m)".format(bn_5m) if bn_5m is not None else ""
-vd = "{:+.2f}% (5m)".format(vix_5m) if vix_5m is not None else ""
+nd = "{:+.2f}%".format(nifty_5m) if nifty_5m is not None else ""
+bd = "{:+.2f}%".format(bn_5m) if bn_5m is not None else ""
+vd = "{:+.2f}%".format(vix_5m) if vix_5m is not None else ""
 nc = "#00b300" if (nifty_5m or 0) >= 0 else "#cc0000"
 bc = "#00b300" if (bn_5m or 0) >= 0 else "#cc0000"
 vc = "#cc0000" if (vix_5m or 0) >= 0 else "#00b300"
@@ -267,29 +247,16 @@ st.markdown(
 # ===== 2. RULE-BASED MARKET STRUCTURE =====
 st.markdown("---")
 st.subheader("Rule-based Market Structure")
-st.caption("இது rule-based technical alignment மட்டுமே; trading recommendation அல்ல.")
-
+st.caption("Rule-based technical alignment only; not a trading recommendation.")
 buy_cond = [spot_price > TC, spot_price > vwap_val, ema9_val > ema21_val, rsi_val >= 55]
 sell_cond = [spot_price < BC, spot_price < vwap_val, ema9_val < ema21_val, rsi_val <= 45]
-
 if all(buy_cond):
-    st.success(
-        "Bullish alignment detected: price above TC/VWAP, "
-        "EMA 9 above EMA 21, RSI at/above 55."
-    )
+    st.success("Bullish alignment: price above TC/VWAP, EMA 9 > EMA 21, RSI >= 55.")
 elif all(sell_cond):
-    st.error(
-        "Bearish alignment detected: price below BC/VWAP, "
-        "EMA 9 below EMA 21, RSI at/below 45."
-    )
+    st.error("Bearish alignment: price below BC/VWAP, EMA 9 < EMA 21, RSI <= 45.")
 else:
     st.info("Mixed conditions: no clear technical alignment.")
-
-st.caption(
-    "Reference levels - BC: Rs {:,.2f} | TC: Rs {:,.2f} | R1: Rs {:,.2f} | S1: Rs {:,.2f}".format(
-        BC, TC, R1, S1
-    )
-)
+st.caption("Reference: BC Rs {:,.2f} | TC Rs {:,.2f} | R1 Rs {:,.2f} | S1 Rs {:,.2f}".format(BC, TC, R1, S1))
 
 # ===== 3. LIVE ALERTS =====
 st.markdown("---")
@@ -297,34 +264,33 @@ st.subheader("Live Alerts")
 alerts = []
 if pd.notna(ema9_val) and pd.notna(ema21_val):
     if ema9_val > ema21_val:
-        alerts.append("EMA Bullish - EMA 9 ({:,.2f}) > EMA 21 ({:,.2f})".format(ema9_val, ema21_val))
+        alerts.append("EMA Bullish - EMA 9 > EMA 21")
     else:
-        alerts.append("EMA Bearish - EMA 9 ({:,.2f}) < EMA 21 ({:,.2f})".format(ema9_val, ema21_val))
+        alerts.append("EMA Bearish - EMA 9 < EMA 21")
 if pd.notna(vwap_val):
     if spot_price > vwap_val:
-        alerts.append("Above VWAP - Price ({:,.2f}) > VWAP ({:,.2f})".format(spot_price, vwap_val))
+        alerts.append("Above VWAP")
     else:
-        alerts.append("Below VWAP - Price ({:,.2f}) < VWAP ({:,.2f})".format(spot_price, vwap_val))
+        alerts.append("Below VWAP")
 if pd.notna(rsi_val):
     if rsi_val >= 70:
         alerts.append("RSI Overbought ({:.1f})".format(rsi_val))
     elif rsi_val <= 30:
         alerts.append("RSI Oversold ({:.1f})".format(rsi_val))
-    elif rsi_val >= 60:
-        alerts.append("RSI Bullish Bias ({:.1f})".format(rsi_val))
-    elif rsi_val <= 40:
-        alerts.append("RSI Bearish Bias ({:.1f})".format(rsi_val))
 if spot_price > pdh:
-    alerts.append("PDH Breakout - Above Rs {:,.2f}".format(pdh))
+    alerts.append("PDH Breakout")
 elif spot_price < pdl:
-    alerts.append("PDL Breakdown - Below Rs {:,.2f}".format(pdl))
-for a in alerts:
-    st.markdown("- " + a)
+    alerts.append("PDL Breakdown")
+if alerts:
+    for a in alerts:
+        st.markdown("- " + a)
+else:
+    st.caption("No active alerts.")
 
 # ===== 4. MARKET BREADTH =====
 st.markdown("---")
 st.subheader("Market Breadth - Nifty 50 Watchlist")
-st.caption("இது ஒரு maintained Nifty heavyweight watchlist (18 stocks); முழு Nifty 50 அல்ல.")
+st.caption("18 Nifty heavyweight stocks.")
 breadth_stocks, _ = get_nifty50_breadth()
 if breadth_stocks:
     adv = sum(1 for s in breadth_stocks if s["Change%"] > 0.05)
@@ -334,22 +300,10 @@ if breadth_stocks:
     b1.metric("Advances", adv)
     b2.metric("Declines", dec)
     b3.metric("Avg Change", "{:+.2f}%".format(avg_c))
-
     ss = sorted(breadth_stocks, key=lambda x: x["Change%"], reverse=True)
-    g_html = ""
-    for s in ss[:5]:
-        g_html += '<div style="border-bottom:1px solid #eee; padding:3px;"><b>' + s["Symbol"] + '</b><br>Rs {:,.2f} <span style="color:#00b300;">({:+.2f}%)</span></div>'.format(s["LTP"], s["Change%"])
-    l_html = ""
-    for s in ss[-5:][::-1]:
-        l_html += '<div style="border-bottom:1px solid #eee; padding:3px;"><b>' + s["Symbol"] + '</b><br>Rs {:,.2f} <span style="color:#cc0000;">({:+.2f}%)</span></div>'.format(s["LTP"], s["Change%"])
-
-    st.markdown(
-        '<div style="display:flex; gap:10px; margin-top:8px;">'
-        '<div style="flex:1;"><div style="font-weight:bold; color:#00b300; margin-bottom:6px;">Top 5 Gainers</div>' + g_html + '</div>'
-        '<div style="flex:1;"><div style="font-weight:bold; color:#cc0000; margin-bottom:6px;">Top 5 Losers</div>' + l_html + '</div>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
+    g_html = "".join(['<div style="border-bottom:1px solid #eee; padding:3px;"><b>' + s["Symbol"] + '</b><br>Rs {:,.2f} <span style="color:#00b300;">({:+.2f}%)</span></div>'.format(s["LTP"], s["Change%"]) for s in ss[:5]])
+    l_html = "".join(['<div style="border-bottom:1px solid #eee; padding:3px;"><b>' + s["Symbol"] + '</b><br>Rs {:,.2f} <span style="color:#cc0000;">({:+.2f}%)</span></div>'.format(s["LTP"], s["Change%"]) for s in ss[-5:][::-1]])
+    st.markdown('<div style="display:flex; gap:10px;"><div style="flex:1;"><div style="font-weight:bold; color:#00b300;">Top 5 Gainers</div>' + g_html + '</div><div style="flex:1;"><div style="font-weight:bold; color:#cc0000;">Top 5 Losers</div>' + l_html + '</div></div>', unsafe_allow_html=True)
 
 # ===== 5. SECTOR PERFORMANCE =====
 st.markdown("---")
@@ -362,18 +316,16 @@ if sec_data:
             if pct >= 0:
                 st.success("{}: +{:.2f}%".format(name, pct))
             else:
-                st.error("{name}: {pct:.2f}%".format(name=name, pct=pct))
+                st.error("{}: {:.2f}%".format(name, pct))
 
 # ===== 6. OPTION CHAIN =====
 st.markdown("---")
 st.subheader("Strike-wise Call vs Put (Estimated Model)")
-st.caption("இது மாதிரி மதிப்பீடு மட்டுமே; நேரடி NSE OI அல்ல.")
-
+st.caption("Illustrative model only; not real NSE OI.")
 atm = int(round(spot_price / 50) * 50)
 rows = []
 tot_call = 0
 tot_put = 0
-
 for s in [atm + (i * 50) for i in range(-2, 3)]:
     d = abs(spot_price - s)
     c_oi = int(max(1500000, 4500000 - (d * 9000)))
@@ -389,18 +341,10 @@ for s in [atm + (i * 50) for i in range(-2, 3)]:
         sig = "Call Resistance"
     else:
         sig = "Neutral"
-    strike_label = "Rs {:,}".format(s)
+    slbl = "Rs {:,}".format(s)
     if s == atm:
-        strike_label += " (ATM)"
-    rows.append({
-        "Strike": strike_label,
-        "Call OI": format_lakhs(c_oi),
-        "Call LTP": "Rs {}".format(c_ltp),
-        "Put LTP": "Rs {}".format(p_ltp),
-        "Put OI": format_lakhs(p_oi),
-        "Signal": sig,
-    })
-
+        slbl += " (ATM)"
+    rows.append({"Strike": slbl, "Call OI": format_lakhs(c_oi), "Call LTP": "Rs {}".format(c_ltp), "Put LTP": "Rs {}".format(p_ltp), "Put OI": format_lakhs(p_oi), "Signal": sig})
 pcr = tot_put / tot_call if tot_call > 0 else 0
 pa, pb, pc = st.columns(3)
 if pcr > 1.2:
@@ -411,14 +355,12 @@ else:
     pa.metric("PCR", "{:.2f}".format(pcr), "Neutral")
 pb.metric("ATM", "Rs {:,}".format(atm))
 pc.metric("Spot", "Rs {:,.2f}".format(spot_price))
-
 st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
 
 # ===== 7. PAPER TRADING =====
 st.markdown("---")
 st.subheader("Model-based Paper Trading")
-st.caption("விர்ச்சுவல் டிரேடிங் - real order போகாது.")
-
+st.caption("Virtual only - no real orders.")
 p_col1, p_col2 = st.columns([1, 2])
 with p_col1:
     with st.form("open_trade_form"):
@@ -436,7 +378,6 @@ with p_col1:
     if submitted:
         add_paper_trade(pt_strike, pt_type, est_p, pt_qty)
         st.rerun()
-
 with p_col2:
     if st.session_state.paper_trades:
         t_rows = []
@@ -451,15 +392,7 @@ with p_col2:
             else:
                 pnl = t["pnl"]
                 ltp_disp = "Rs {}".format(t["exit"])
-            t_rows.append({
-                "ID": t["id"],
-                "Trade": "{} {}".format(t["strike"], t["type"]),
-                "Entry": "Rs {}".format(t["entry"]),
-                "Qty": t["qty"],
-                "LTP": ltp_disp,
-                "PnL": "Rs {:+,.2f}".format(pnl),
-                "Status": t["status"],
-            })
+            t_rows.append({"ID": t["id"], "Trade": "{} {}".format(t["strike"], t["type"]), "Entry": "Rs {}".format(t["entry"]), "Qty": t["qty"], "LTP": ltp_disp, "PnL": "Rs {:+,.2f}".format(pnl), "Status": t["status"]})
         st.dataframe(pd.DataFrame(t_rows), hide_index=True)
         open_t = [t for t in st.session_state.paper_trades if t["status"] == "OPEN"]
         if open_t:
@@ -475,7 +408,7 @@ with p_col2:
                 close_paper_trade(c_id, c_ext)
                 st.rerun()
     else:
-        st.info("செயலில் உள்ள டிரேடுகள் இல்லை.")
+        st.info("No active trades.")
 
 # ===== 8. CHART =====
 st.markdown("---")
@@ -483,37 +416,43 @@ st.subheader("NIFTY Intraday Chart - Price & VWAP")
 cdf = session_hist[["Close", "VWAP"]].copy().dropna(subset=["Close"])
 
 if not cdf.empty:
-    chart_values = (
-        cdf["Close"].dropna().tolist()
-        + cdf["VWAP"].dropna().tolist()
-        + [pdh, pdl, R1, S1, TC, BC, PP]
-    )
-    valid_values = []
-    for v in chart_values:
-        if pd.notna(v) and np.isfinite(v) and (spot_price - 400) <= float(v) <= (spot_price + 400):
-            valid_values.append(float(v))
-
-    if valid_values:
-        low = min(valid_values)
-        high = max(valid_values)
-        padding = max(25.0, (high - low) * 0.10)
-        y_range = [low - padding, high + padding]
+    cv_vals = list(cdf["Close"].dropna()) + list(cdf["VWAP"].dropna()) + [pdh, pdl, R1, S1, TC, BC, PP]
+    valid = [float(v) for v in cv_vals if pd.notna(v) and np.isfinite(v) and (spot_price - 400) <= float(v) <= (spot_price + 400)]
+    if valid:
+        lo = min(valid)
+        hi = max(valid)
+        pad = max(25.0, (hi - lo) * 0.10)
+        y_range = [lo - pad, hi + pad]
     else:
         y_range = [spot_price - 250, spot_price + 250]
 
+    t0 = cdf.index[0]
+    t1 = cdf.index[-1]
+
     fig = go.Figure()
-
-    fig.add_hrect(
-        y0=BC, y1=TC,
-        fillcolor="LightSkyBlue",
-        opacity=0.15,
-        line_width=0,
-        layer="below",
-    )
-
+    fig.add_hrect(y0=BC, y1=TC, fillcolor="LightSkyBlue", opacity=0.15, line_width=0, layer="below")
     fig.add_trace(go.Scatter(x=cdf.index, y=cdf["Close"], mode="lines", name="Price", line=dict(color="#0052cc", width=2.5)))
     fig.add_trace(go.Scatter(x=cdf.index, y=cdf["VWAP"], mode="lines", name="VWAP", line=dict(color="#ff9900", width=1.8, dash="dash")))
-    fig.add_trace(go.Scatter(x=[cdf.index[0], cdf.index[-1]], y=[TC, TC], mode="lines", name="TC", line=dict(color="#66b3ff", width=1, dash="dot")))
-    fig.add_trace(go.Scatter(x=[cdf.index[0], cdf.index[-1]], y=[BC, BC], mode="lines", name="BC", line=dict(color="#3399ff", width=1, dash="dot")))
-    fig.add_trace(go.Scatter(x=[cdf.index[0], cdf.index[-1]], y=[PP, PP], mode="lines", name="Pivot", line=dict(color="#0066cc", width=1, dash="dash")))
-    fig.add_trace(go.Scatter(x=[cdf.index[0], cdf.index[-1]], y=[pdh, pdh], mode="lines", name="PDH", line=
+    fig.add_trace(go.Scatter(x=[t0, t1], y=[TC, TC], mode="lines", name="TC", line=dict(color="#66b3ff", width=1, dash="dot")))
+    fig.add_trace(go.Scatter(x=[t0, t1], y=[BC, BC], mode="lines", name="BC", line=dict(color="#3399ff", width=1, dash="dot")))
+    fig.add_trace(go.Scatter(x=[t0, t1], y=[PP, PP], mode="lines", name="Pivot", line=dict(color="#0066cc", width=1, dash="dash")))
+    fig.add_trace(go.Scatter(x=[t0, t1], y=[pdh, pdh], mode="lines", name="PDH", line=dict(color="#cc0000", width=1)))
+    fig.add_trace(go.Scatter(x=[t0, t1], y=[pdl, pdl], mode="lines", name="PDL", line=dict(color="#00b300", width=1)))
+    fig.update_layout(height=450, margin=dict(l=10, r=10, t=35, b=45), legend=dict(orientation="h", y=-0.18), xaxis_title="Time (IST)", yaxis=dict(title="Price (Rs)", range=y_range, fixedrange=False), hovermode="x unified")
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("### Key Pivots & Levels")
+    lvl_tbl = pd.DataFrame([
+        {"Level": "PDH", "Price": "Rs {:,.2f}".format(pdh), "Zone": "Resistance"},
+        {"Level": "R2", "Price": "Rs {:,.2f}".format(R2), "Zone": "Major Resistance"},
+        {"Level": "R1", "Price": "Rs {:,.2f}".format(R1), "Zone": "Immediate Resistance"},
+        {"Level": "TC", "Price": "Rs {:,.2f}".format(TC), "Zone": "CPR Top"},
+        {"Level": "Pivot", "Price": "Rs {:,.2f}".format(PP), "Zone": "Central Pivot"},
+        {"Level": "BC", "Price": "Rs {:,.2f}".format(BC), "Zone": "CPR Bottom"},
+        {"Level": "S1", "Price": "Rs {:,.2f}".format(S1), "Zone": "Immediate Support"},
+        {"Level": "S2", "Price": "Rs {:,.2f}".format(S2), "Zone": "Major Support"},
+        {"Level": "PDL", "Price": "Rs {:,.2f}".format(pdl), "Zone": "Support"},
+    ])
+    st.dataframe(lvl_tbl, hide_index=True, use_container_width=True)
+else:
+    st.warning("Chart data u
