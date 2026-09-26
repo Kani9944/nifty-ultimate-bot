@@ -439,8 +439,6 @@ with e2:
             "paper_trades.csv",
             "Paper Trades CSV",
         )
-
-
     
 with e3:
     summary_df = pd.DataFrame([{
