@@ -1,4 +1,4 @@
-வசதிகள் சேர்க்க வேண்டுமா?import streamlit as st
+வசதி
 import yfinance as yf
 import pandas as pd
 import ta
