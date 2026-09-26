@@ -117,10 +117,15 @@ def get_previous_close_for_session(daily_data, target_date):
   return float(earlier["Close"].iloc[-1])
 
 
-# 6. Safe Indicator Trend Label Helper
+# 6. Safe Indicator Trend Label Helper (Fix 1: Flat/At Par சேர்க்கப்பட்டது)
 def trend_label(price, indicator):
   if pd.isna(indicator):
     return "⚪ Insufficient data"
+  if indicator == 0:
+    return "⚪ N/A"
+  diff_pct = abs((price - indicator) / indicator * 100)
+  if diff_pct < 0.01:
+    return "⚪ Flat / At Par"
   return "🟢 Bullish" if price > indicator else "🩸 Bearish"
 
 
@@ -255,28 +260,35 @@ try:
   ema21_val = float(hist["EMA21"].iloc[-1])
   rsi_val = float(hist["RSI"].iloc[-1])
 
-  # RSI Status Logic
+  # Fix 3: RSI 6-level Granular Logic
   if pd.isna(rsi_val):
     rsi_status = "⚪ Insufficient data"
   elif rsi_val >= 70:
-    rsi_status = "🚨 Overbought (>70)"
+    rsi_status = "🚨 Overbought (>70) — Pullback caution"
+  elif rsi_val >= 60:
+    rsi_status = "🟢 Bullish Bias (60-70)"
   elif rsi_val <= 30:
-    rsi_status = "🟢 Oversold (<30)"
+    rsi_status = "🟢 Oversold (<30) — Bounce possible"
+  elif rsi_val <= 40:
+    rsi_status = "🩸 Bearish Bias (30-40)"
   else:
-    rsi_status = "⚖️ Neutral Zone (30-70)"
+    rsi_status = "⚖️ Neutral Zone (40-60)"
 
-  # Market Structure / Signal Strength Logic
+  # Market Structure / Signal Strength Logic (VWAP At Par சாதகமாக கணக்கிடப்படுகிறது)
   indicator_ready = all(
       pd.notna(value) for value in [ema9_val, ema21_val, rsi_val, vwap_val]
   )
 
   if indicator_ready:
+    vwap_aligned = (spot_price >= vwap_val) or (
+        abs(spot_price - vwap_val) / vwap_val < 0.0001
+    )
     bullish_score = sum([
-        spot_price > ema9_val,
-        spot_price > ema21_val,
-        spot_price > vwap_val,
-        rsi_val > 50,
-        percent_change > 0,
+        spot_price >= ema9_val,
+        spot_price >= ema21_val,
+        vwap_aligned,
+        rsi_val >= 50,
+        percent_change >= 0,
     ])
   else:
     bullish_score = None
@@ -505,15 +517,22 @@ try:
 
     st.markdown("---")
     st.subheader("📌 Normalized CPR & Pivots")
-    if cpr_width_pct < 0.15:
+
+    # Fix 2: Nifty-specific 3-level CPR Thresholds
+    if cpr_width_pct < 0.20:
       st.success(
-          f"🔥 **Narrow CPR ({cpr_width_pct:.2f}%):** ஒருபக்க movement-ஐ"
-          " கவனிக்க வேண்டிய சூழல்."
+          f"🔥 **Narrow CPR ({cpr_width_pct:.2f}%):** ஒருபக்க"
+          " breakout-ஐ கவனிக்க வேண்டிய சூழல்."
+      )
+    elif cpr_width_pct > 0.35:
+      st.warning(
+          f"⚠️ **Wide CPR ({cpr_width_pct:.2f}%):** range-bound"
+          " அல்லது mixed movement சாத்தியம்."
       )
     else:
       st.info(
-          f"⚠️ **Wide CPR ({cpr_width_pct:.2f}%):** range-bound அல்லது mixed"
-          " movement சாத்தியம் இருக்கலாம்."
+          f"⚖️ **Normal CPR ({cpr_width_pct:.2f}%):** சமநிலையான"
+          " சூழல்; direction confirmation-க்குக் காத்திருங்கள்."
       )
 
     st.write(f"🔴 **Resistance 2 (R2):** ₹{R2:,.2f}")
@@ -611,7 +630,7 @@ try:
   min_val = float(min(all_valid_prices) - 30)
   max_val = float(max(all_valid_prices) + 30)
 
-  # 1. Price Line Chart (விலை மற்றும் நேரத்திற்கான துல்லியமான Tooltip மட்டும்)
+  # 1. Price Line Chart
   price_line = (
       alt.Chart(chart_df)
       .mark_line(color="#0052cc", strokeWidth=2.5)
@@ -689,7 +708,7 @@ try:
       )
   )
 
-  # 5. PDH / R1 / TC / Pivot / BC / S1 / PDL கிடைமட்டக் கோடுகள் (Tooltip நிரந்தரமாக அகற்றப்பட்டது)
+  # 5. PDH / R1 / TC / Pivot / BC / S1 / PDL கிடைமட்டக் கோடுகள்
   level_rules = (
       alt.Chart(levels_data)
       .mark_rule(strokeDash=[4, 4], strokeWidth=1.2)
