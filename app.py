@@ -220,9 +220,8 @@ try:
   )
 
   PP = (pdh + pdl + pdc) / 3
-  BC, TC = min((pdh + pdl) / 2, (2 * PP) - ((pdh + pdl) / 2)), max(
-      (pdh + pdl) / 2, (2 * PP) - ((pdh + pdl) / 2)
-  )
+  BC = min((pdh + pdl) / 2, (2 * PP) - ((pdh + pdl) / 2))
+  TC = max((pdh + pdl) / 2, (2 * PP) - ((pdh + pdl) / 2))
   R1, S1 = (2 * PP) - pdl, (2 * PP) - pdh
   R2, S2 = PP + (pdh - pdl), PP - (pdh - pdl)
 
@@ -350,13 +349,11 @@ try:
   tot_call, tot_put = 0, 0
   for s in [atm + (i * 50) for i in range(-2, 3)]:
     d = abs(spot_price - s)
-    c_oi, p_oi = int(max(1500000, 4500000 - (d * 9000))), int(
-        max(1400000, 5200000 - (d * 8500))
-    )
+    c_oi = int(max(1500000, 4500000 - (d * 9000)))
+    p_oi = int(max(1400000, 5200000 - (d * 8500)))
     diff = (spot_price - s) / 50.0
-    c_ltp, p_ltp = round(max(5.0, 180.0 + (diff * 45)), 2), round(
-        max(5.0, 175.0 - (diff * 45)), 2
-    )
+    c_ltp = round(max(5.0, 180.0 + (diff * 45)), 2)
+    p_ltp = round(max(5.0, 175.0 - (diff * 45)), 2)
     tot_call += c_oi
     tot_put += p_oi
     sig = (
@@ -386,8 +383,7 @@ try:
   )
   pb.metric("🎯 Model ATM Reference", f"₹{atm:,}")
   pc.metric("📍 Nifty Spot", f"₹{spot_price:,.2f}")
-  opt_df = pd.DataFrame(rows)
-  st.dataframe(opt_df, hide_index=True, use_container_width=True)
+  st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
 
   # Paper Trading
   st.markdown("---")
@@ -493,173 +489,155 @@ try:
     for n in get_market_news():
       st.write(n)
 
-  # Chart Section (Shortened & Safe Layers)
+  # Chart Section
   st.markdown("---")
   st.subheader("📈 NIFTY Intraday Chart - Price / VWAP / CPR")
 
-  chart_df = (
-      session_hist[["Close", "VWAP"]]
-      .copy()
-      .replace([np.inf, -np.inf], np.nan)
-      .dropna(subset=["Close"])
-      .reset_index()
-  )
-  chart_df.columns = ["Time", "Close", "VWAP"]
-  chart_df = chart_df[chart_df["Close"] > 0]
-  if chart_df.empty:
+  chart_data = pd.DataFrame({
+      "Time": session_hist.index,
+      "Close": session_hist["Close"].values,
+      "VWAP": session_hist["VWAP"].values,
+  }).dropna(subset=["Close"])
+  chart_data = chart_data[chart_data["Close"] > 0].copy()
+
+  if chart_data.empty:
     st.warning("Chart data unavailable.")
-    st.stop()
-
-  vwap_df = chart_df.dropna(subset=["VWAP"])
-  c_start, c_end = chart_df["Time"].min(), chart_df[
-      "Time"
-  ].max() + pd.Timedelta(minutes=25)
-  l_x = chart_df["Time"].max() + pd.Timedelta(minutes=3)
-
-  ldf = pd.DataFrame([
-      {"Level": "PDH", "Value": pdh, "Color": "#cc0000", "LX": l_x},
-      {"Level": "R1", "Value": R1, "Color": "#ff6666", "LX": l_x},
-      {"Level": "TC", "Value": TC, "Color": "#66b3ff", "LX": l_x},
-      {"Level": "Pivot", "Value": PP, "Color": "#0066cc", "LX": l_x},
-      {"Level": "BC", "Value": BC, "Color": "#3399ff", "LX": l_x},
-      {"Level": "S1", "Value": S1, "Color": "#66cc66", "LX": l_x},
-      {"Level": "PDL", "Value": pdl, "Color": "#009900", "LX": l_x},
-  ])
-
-  all_v = [
-      float(v)
-      for v in (
-          chart_df["Close"].tolist()
-          + vwap_df["VWAP"].tolist()
-          + ldf["Value"].tolist()
-      )
-      if pd.notna(v) and np.isfinite(v) and (spot_price - 400) <= v <= (spot_price + 400)
-  ]
-  if all_v:
-    mn, mx = min(all_v), max(all_v)
-    pad = max(25.0, (mx - mn) * 0.10)
-    y_min, y_max = float(mn - pad), float(mx + pad)
   else:
-    y_min, y_max = float(spot_price - 250), float(spot_price + 250)
+    c_start = chart_data["Time"].min()
+    c_end = chart_data["Time"].max() + pd.Timedelta(minutes=25)
+    l_x = chart_data["Time"].max() + pd.Timedelta(minutes=3)
 
-  x_scale = alt.Scale(domain=[c_start, c_end])
-  y_scale = alt.Scale(
-      domain=[y_min, y_max], clamp=True, zero=False, nice=False, padding=0
-  )
+    ldf = pd.DataFrame([
+        {"Level": "PDH", "Value": pdh, "Color": "#cc0000", "LX": l_x},
+        {"Level": "R1", "Value": R1, "Color": "#ff6666", "LX": l_x},
+        {"Level": "TC", "Value": TC, "Color": "#66b3ff", "LX": l_x},
+        {"Level": "Pivot", "Value": PP, "Color": "#0066cc", "LX": l_x},
+        {"Level": "BC", "Value": BC, "Color": "#3399ff", "LX": l_x},
+        {"Level": "S1", "Value": S1, "Color": "#66cc66", "LX": l_x},
+        {"Level": "PDL", "Value": pdl, "Color": "#009900", "LX": l_x},
+    ])
 
-  # Chart Definitions
-  p_line = (
-      alt.Chart(chart_df)
-      .mark_line(color="#0052cc", strokeWidth=2.5)
-      .encode(
-          x=alt.X(
-              "Time:T",
-              title="Time (IST)",
-              axis=alt.Axis(format="%H:%M", tickMinStep=300000),
-              scale=x_scale,
-          ),
-          y=alt.Y("Close:Q", title="Price (₹)", scale=y_scale),
-          tooltip=["Time:T", "Close:Q"],
-      )
-  )
+    all_v = [
+        float(v)
+        for v in (
+            chart_data["Close"].tolist()
+            + chart_data["VWAP"].dropna().tolist()
+            + ldf["Value"].tolist()
+        )
+        if pd.notna(v) and np.isfinite(v) and (spot_price - 400) <= v <= (spot_price + 400)
+    ]
+    if all_v:
+      mn, mx = min(all_v), max(all_v)
+      pad = max(25.0, (mx - mn) * 0.10)
+      y_min, y_max = float(mn - pad), float(mx + pad)
+    else:
+      y_min, y_max = float(spot_price - 250), float(spot_price + 250)
 
-  v_line = (
-      alt.Chart(vwap_df)
-      .mark_line(color="#ff9900", strokeWidth=2.0, strokeDash=[3, 3])
-      .encode(
-          x=alt.X("Time:T", scale=x_scale),
-          y=alt.Y("VWAP:Q", scale=y_scale),
-          tooltip=["Time:T", "VWAP:Q"],
-      )
-  )
+    x_scale = alt.Scale(domain=[c_start, c_end])
+    y_scale = alt.Scale(
+        domain=[y_min, y_max], clamp=True, zero=False, nice=False, padding=0
+    )
 
-  c_box = (
-      alt.Chart(
-          pd.DataFrame([{"_S": c_start, "_E": c_end, "_L": BC, "_U": TC}])
-      )
-      .mark_rect(color="#9ecae1", opacity=0.15)
-      .encode(
-          x=alt.X("_S:T", scale=x_scale),
-          x2="_E:T",
-          y=alt.Y("_L:Q", scale=y_scale),
-          y2="_U:Q",
-          tooltip=alt.value(None),
-      )
-  )
+    p_line = (
+        alt.Chart(chart_data)
+        .mark_line(color="#0052cc", strokeWidth=2.5)
+        .encode(
+            x=alt.X(
+                "Time:T",
+                title="Time (IST)",
+                axis=alt.Axis(format="%H:%M", tickMinStep=300000),
+                scale=x_scale,
+            ),
+            y=alt.Y("Close:Q", title="Price (₹)", scale=y_scale),
+        )
+    )
 
-  rules = (
-      alt.Chart(ldf)
-      .mark_rule(strokeDash=[4, 4], strokeWidth=1.2)
-      .encode(
-          y=alt.Y("Value:Q", scale=y_scale),
-          color=alt.Color("Color:N", scale=None, legend=None),
-          tooltip=["Level:N", "Value:Q"],
-      )
-  )
+    v_line = (
+        alt.Chart(chart_data.dropna(subset=["VWAP"]))
+        .mark_line(color="#ff9900", strokeWidth=2.0, strokeDash=[3, 3])
+        .encode(
+            x=alt.X("Time:T", scale=x_scale),
+            y=alt.Y("VWAP:Q", scale=y_scale),
+        )
+    )
 
-  lbls = (
-      alt.Chart(ldf)
-      .mark_text(align="left", dx=4, dy=-3, fontSize=10, fontWeight="bold")
-      .encode(
-          x=alt.X("LX:T", scale=x_scale),
-          y=alt.Y("Value:Q", scale=y_scale),
-          text="Level:N",
-          color=alt.Color("Color:N", scale=None, legend=None),
-          tooltip=alt.value(None),
-      )
-  )
+    c_box = (
+        alt.Chart(
+            pd.DataFrame([{"_S": c_start, "_E": c_end, "_L": BC, "_U": TC}])
+        )
+        .mark_rect(color="#9ecae1", opacity=0.15)
+        .encode(
+            x=alt.X("_S:T", scale=x_scale),
+            x2="_E:T",
+            y=alt.Y("_L:Q", scale=y_scale),
+            y2="_U:Q",
+        )
+    )
 
-  dot = (
-      alt.Chart(chart_df.tail(1))
-      .mark_point(color="#0052cc", filled=True, size=80, shape="circle")
-      .encode(
-          x=alt.X("Time:T", scale=x_scale),
-          y=alt.Y("Close:Q", scale=y_scale),
-          tooltip=["Time:T", "Close:Q"],
-      )
-  )
+    rules = (
+        alt.Chart(ldf)
+        .mark_rule(strokeDash=[4, 4], strokeWidth=1.2)
+        .encode(
+            y=alt.Y("Value:Q", scale=y_scale),
+            color=alt.Color("Color:N", scale=None, legend=None),
+        )
+    )
 
-  ltp = (
-      alt.Chart(
-          pd.DataFrame([{
-              "Time": l_x,
-              "Close": spot_price,
-              "Label": f"LTP ₹{spot_price:,.2f}",
-          }])
-      )
-      .mark_text(
-          align="left",
-          dx=4,
-          dy=14,
-          fontSize=11,
-          fontWeight="bold",
-          color="#cc0000",
-      )
-      .encode(
-          x=alt.X("Time:T", scale=x_scale),
-          y=alt.Y("Close:Q", scale=y_scale),
-          text="Label:N",
-          tooltip=alt.value(None),
-      )
-  )
+    lbls = (
+        alt.Chart(ldf)
+        .mark_text(align="left", dx=4, dy=-3, fontSize=10, fontWeight="bold")
+        .encode(
+            x=alt.X("LX:T", scale=x_scale),
+            y=alt.Y("Value:Q", scale=y_scale),
+            text="Level:N",
+            color=alt.Color("Color:N", scale=None, legend=None),
+        )
+    )
 
-  final_chart = (
-      c_box + rules + v_line + p_line + dot + lbls + ltp
-  ).resolve_scale(
-      x="shared",
-      y="shared",
-  ).properties(
-      height=460,
-      title="NIFTY Intraday - Price, VWAP, CPR and Key Levels",
-  )
+    dot = (
+        alt.Chart(chart_data.tail(1))
+        .mark_point(color="#0052cc", filled=True, size=80, shape="circle")
+        .encode(
+            x=alt.X("Time:T", scale=x_scale),
+            y=alt.Y("Close:Q", scale=y_scale),
+        )
+    )
 
-  st.altair_chart(final_chart, use_container_width=True)
-  st.caption(
-      "🔵 Price | 🟠 Session VWAP | 🔴 PDH/R1/R2 | 🔵 CPR (TC/Pivot/BC) | 🟢"
-      " S1/S2/PDL | 🔴 LTP"
-  )
+    ltp = (
+        alt.Chart(
+            pd.DataFrame([{
+                "Time": l_x,
+                "Close": spot_price,
+                "Label": f"LTP ₹{spot_price:,.2f}",
+            }])
+        )
+        .mark_text(
+            align="left",
+            dx=4,
+            dy=14,
+            fontSize=11,
+            fontWeight="bold",
+            color="#cc0000",
+        )
+        .encode(
+            x=alt.X("Time:T", scale=x_scale),
+            y=alt.Y("Close:Q", scale=y_scale),
+            text="Label:N",
+        )
+    )
 
-except Exception:
-  st.error("டேஷ்போர்டை புதுப்பிப்பதில் தற்காலிகச் சிக்கல். பின்னர் முயற்சிக்கவும்.")
+    st.altair_chart(
+        (c_box + rules + v_line + p_line + dot + lbls + ltp).properties(
+            height=460
+        ),
+        use_container_width=True,
+    )
+    st.caption(
+        "🔵 Price | 🟠 Session VWAP | 🔴 PDH/R1/R2 | 🔵 CPR (TC/Pivot/BC) | 🟢"
+        " S1/S2/PDL | 🔴 LTP"
+    )
+
+except Exception as err:
+  st.error(f"பிழை விவரம்: {err}")
   st.stop()
-  
+    
