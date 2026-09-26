@@ -181,17 +181,16 @@ try:
     st.stop()
 
   hist.index = pd.to_datetime(hist.index)
-  hist.index = (
-      hist.index.tz_convert("Asia/Kolkata")
-      if hist.index.tz is not None
-      else hist.index.tz_localize("Asia/Kolkata")
-  )
+  if hist.index.tz is not None:
+    hist.index = hist.index.tz_convert("Asia/Kolkata")
+  else:
+    hist.index = hist.index.tz_localize("Asia/Kolkata")
+
   daily.index = pd.to_datetime(daily.index)
-  daily.index = (
-      daily.index.tz_convert("Asia/Kolkata")
-      if daily.index.tz is not None
-      else daily.index.tz_localize("Asia/Kolkata")
-  )
+  if daily.index.tz is not None:
+    daily.index = daily.index.tz_convert("Asia/Kolkata")
+  else:
+    daily.index = daily.index.tz_localize("Asia/Kolkata")
 
   today = pd.Timestamp.now(tz="Asia/Kolkata").date()
   session_date = (
@@ -557,6 +556,8 @@ try:
           )
           close_paper_trade(c_id, c_ext)
           st.rerun()
+    else:
+      st.info("செயலில் உள்ள டிரேடுகள் இல்லை.")
 
   # ========== 8. CHART & LEVELS ==========
   st.markdown("---")
@@ -587,6 +588,4 @@ try:
   st.markdown("---")
   st.subheader("📊 Technical Indicators & News")
   st.write(f"🔹 **EMA 9:** ₹{ema9_val:,.2f} | 🔹 **EMA 21:** ₹{ema21_val:,.2f}")
-  st.write(f"🔹 **VWAP:** ₹{vwap_val:,.2f} | 🔹 **RSI (14):** {rsi_val:.2f}")
-
-  for n in get_marke
+  st.write(f"🔹 **VWAP:** ₹{vwap_val:,
