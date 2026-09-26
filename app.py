@@ -39,7 +39,7 @@ def get_heavyweight_intraday(symbol):
   return yf.Ticker(symbol).history(period="1d", interval="5m")
 
 
-# 3. Moneycontrol RSS Feed (Fallback செய்தி + Exception Message)
+# 3. Moneycontrol RSS Feed (அமைதியான ஃபால்பேக் - Toast எரர் நீக்கப்பட்டது)
 @st.cache_data(ttl=300)
 def get_market_news():
   fallback_news = [
@@ -64,10 +64,11 @@ def get_market_news():
         news_list.append(f"📰 **{title}**")
 
     if news_list:
-      return news_list, None
-    return fallback_news, "Empty feed entries"
-  except Exception as e:
-    return fallback_news, str(e)
+      return news_list
+  except Exception:
+    pass
+
+  return fallback_news
 
 
 # 4. குறியீடுகளின் சொந்த அமர்வைக் கண்டறியும் தன்னாட்சி முறை
@@ -549,13 +550,10 @@ try:
 
     st.markdown("---")
     st.subheader("🌐 Global Web Market News")
-    news_items, news_err = get_market_news()
-    if news_err:
-      st.toast(f"News Feed Notice: {news_err}")
-    for n in news_items:
+    for n in get_market_news():
       st.write(n)
 
-  # சார்ட் பகுதி (VWAP, CPR Band, Current Price Marker & Labels)
+  # சார்ட் பகுதி
   st.markdown("---")
   if session_date == today_ist:
     st.subheader("📈 NIFTY 50 - Today's Intraday Levels Chart")
@@ -587,7 +585,7 @@ try:
 
   # வலதுபுறத்தில் இடைவெளி (Padding)
   chart_start = chart_df["Time"].min()
-  chart_end = chart_df["Time"].max() + pd.Timedelta(minutes=15)
+  chart_end = chart_df["Time"].max() + pd.Timedelta(minutes=16)
 
   levels_data = pd.DataFrame([
       {"Level": "PDH", "Value": float(pdh), "Color": "#cc0000"},
@@ -613,7 +611,7 @@ try:
   min_val = float(min(all_valid_prices) - 30)
   max_val = float(max(all_valid_prices) + 30)
 
-  # 1. Price Line Chart
+  # 1. Price Line Chart (விலை மற்றும் நேரத்திற்கான துல்லியமான Tooltip)
   price_line = (
       alt.Chart(chart_df)
       .mark_line(color="#0052cc", strokeWidth=2.5)
@@ -645,10 +643,6 @@ try:
           y=alt.Y(
               "VWAP:Q", scale=alt.Scale(domain=[min_val, max_val], zero=False)
           ),
-          tooltip=[
-              alt.Tooltip("Time:T", title="Time", format="%d-%b %H:%M"),
-              alt.Tooltip("VWAP:Q", title="Session VWAP", format=",.2f"),
-          ],
       )
   )
 
@@ -669,7 +663,7 @@ try:
       )
   )
 
-  # 4. CPR Band (Tooltip முற்றிலுமாக நீக்கப்பட்டுள்ளது)
+  # 4. CPR Band (தொல்லை தரும் பாப்-அப் பாக்ஸ் முற்றிலும் நீக்கப்பட்டுள்ளது)
   cpr_band_data = pd.DataFrame([{
       "_Start": chart_start,
       "_End": chart_end,
@@ -690,26 +684,29 @@ try:
       )
   )
 
-  # 5. PDH / R1 / TC / Pivot / BC / S1 / PDL கிடைமட்டக் கோடுகள்
+  # 5. PDH / R1 / TC / Pivot / BC / S1 / PDL கிடைமட்டக் கோடுகள் (Tooltip முற்றிலும் நீக்கப்பட்டுள்ளது)
   level_rules = (
       alt.Chart(levels_data)
-      .mark_rule(strokeDash=[4, 4], strokeWidth=1.2)
+      .mark_rule(strokeDash=[4, 4], strokeWidth=1.2, tooltip=None)
       .encode(
           y=alt.Y(
               "Value:Q", scale=alt.Scale(domain=[min_val, max_val], zero=False)
           ),
           color=alt.Color("Color:N", scale=None, legend=None),
-          tooltip=[
-              alt.Tooltip("Level:N", title="Level"),
-              alt.Tooltip("Value:Q", title="Price", format=",.2f"),
-          ],
       )
   )
 
-  # 6. வலதுபுறம் Key-level பெயர்கள் (dx=8 என நகர்த்தப்பட்டுள்ளது)
+  # 6. வலதுபுறம் Key-level பெயர்கள் (Labels)
   level_labels = (
       alt.Chart(levels_data)
-      .mark_text(align="left", dx=8, dy=-4, fontSize=11, fontWeight="bold")
+      .mark_text(
+          align="left",
+          dx=8,
+          dy=-4,
+          fontSize=11,
+          fontWeight="bold",
+          tooltip=None,
+      )
       .encode(
           x=alt.X("Time:T"),
           y=alt.Y(
@@ -720,7 +717,7 @@ try:
       )
   )
 
-  # 7. Current Price Label (dy=18 கொண்டு Pivot மறைக்கப்படாமல் கீழே வைக்கப்பட்டுள்ளது)
+  # 7. Current Price Label (dy=22 கொண்டு Pivot உடன் மோதாமல் கீழே வைக்கப்பட்டுள்ளது)
   current_price_label_data = pd.DataFrame([{
       "Time": chart_df["Time"].max() + pd.Timedelta(minutes=3),
       "Price": spot_price,
@@ -732,10 +729,11 @@ try:
       .mark_text(
           align="left",
           dx=8,
-          dy=18,
+          dy=22,
           fontSize=11,
           fontWeight="bold",
           color="#0052cc",
+          tooltip=None,
       )
       .encode(
           x=alt.X("Time:T"),
