@@ -1,6 +1,7 @@
 import feedparser
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 import requests
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
@@ -150,8 +151,8 @@ def get_sector_data():
 def get_market_news():
   feeds = [
       "https://tamil.goodreturns.in/rss/tamil-money-fb.xml",
-      "https://tamil.oneindia.com/rss/feeds/tamil-news-fb.xml",
       "https://www.dinamani.com/rss/business.xml",
+      "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
   ]
   news = []
   for url in feeds:
@@ -162,12 +163,12 @@ def get_market_news():
         for e in f.entries[:3]:
           t, l = e.get("title", "").strip(), e.get("link", "")
           if t:
-            news.append(f"📰 [{t}]({l})" if l else f"📰 {t}")
+            news.append(f"🌐 [{t}]({l})" if l else f"🌐 {t}")
         if len(news) >= 6:
           break
     except Exception:
       continue
-  return news[:6] if news else ["📰 தமிழ் வணிகச் செய்திகள் கிடைக்கவில்லை."]
+  return news[:6] if news else ["🌐 சந்தை செய்திகள் தற்காலிகமாக கிடைக்கவில்லை."]
 
 
 try:
@@ -181,16 +182,17 @@ try:
     st.stop()
 
   hist.index = pd.to_datetime(hist.index)
-  if hist.index.tz is not None:
-    hist.index = hist.index.tz_convert("Asia/Kolkata")
-  else:
-    hist.index = hist.index.tz_localize("Asia/Kolkata")
-
+  hist.index = (
+      hist.index.tz_convert("Asia/Kolkata")
+      if hist.index.tz is not None
+      else hist.index.tz_localize("Asia/Kolkata")
+  )
   daily.index = pd.to_datetime(daily.index)
-  if daily.index.tz is not None:
-    daily.index = daily.index.tz_convert("Asia/Kolkata")
-  else:
-    daily.index = daily.index.tz_localize("Asia/Kolkata")
+  daily.index = (
+      daily.index.tz_convert("Asia/Kolkata")
+      if daily.index.tz is not None
+      else daily.index.tz_localize("Asia/Kolkata")
+  )
 
   today = pd.Timestamp.now(tz="Asia/Kolkata").date()
   session_date = (
@@ -211,9 +213,11 @@ try:
     st.stop()
 
   prev_day = prev_sessions.iloc[-1]
-  pdh = float(prev_day["High"])
-  pdl = float(prev_day["Low"])
-  pdc = float(prev_day["Close"])
+  pdh, pdl, pdc = (
+      float(prev_day["High"]),
+      float(prev_day["Low"]),
+      float(prev_day["Close"]),
+  )
 
   PP = (pdh + pdl + pdc) / 3
   BC = min((pdh + pdl) / 2, (2 * PP) - ((pdh + pdl) / 2))
@@ -244,7 +248,7 @@ try:
       else spot_price
   )
 
-  # ========== 1. TOP METRICS (SIDE-BY-SIDE BOX) ==========
+  # ========== 1. TOP METRICS ==========
   nd_str = f"{nifty_5m:+.2f}%" if nifty_5m is not None else "0.00%"
   bd_str = f"{bn_5m:+.2f}%" if bn_5m is not None else "0.00%"
   vd_str = f"{vix_5m:+.2f}%" if vix_5m is not None else "0.00%"
@@ -322,35 +326,51 @@ try:
     target = round(min(R1, spot_price + 60), 2)
     stoploss = round(max(BC, vwap_val - 15), 2)
     st.success(
-        "🟢 BUY SIGNAL (Call Option சாதகம்) | என்ட்ரி: ₹{:,.2f} | இலக்கு:"
-        " ₹{:,.2f} | ஸ்டாப்லாஸ்: ₹{:,.2f}".format(spot_price, target, stoploss)
+        f"🟢 **BUY SIGNAL (Call Option சாதகம்)**\n\n- **காரணம்:** விலை CPR (TC)"
+        f" மற்றும் VWAP-க்கு மேல் நிலைபெற்றுள்ளது. EMA 9 > EMA 21, RSI:"
+        f" {rsi_val:.1f}\n- **என்ட்ரி வரம்பு:** ₹{spot_price:,.2f} | **இலக்கு:**"
+        f" ₹{target:,.2f} | **ஸ்டாப்லாஸ்:** ₹{stoploss:,.2f}"
     )
   elif all(sell_conditions):
     target = round(max(S1, spot_price - 60), 2)
     stoploss = round(min(TC, vwap_val + 15), 2)
     st.error(
-        "🔴 SELL SIGNAL (Put Option சாதகம்) | என்ட்ரி: ₹{:,.2f} | இலக்கு:"
-        " ₹{:,.2f} | ஸ்டாப்லாஸ்: ₹{:,.2f}".format(spot_price, target, stoploss)
+        f"🔴 **SELL SIGNAL (Put Option சாதகம்)**\n\n- **காரணம்:** விலை CPR (BC)"
+        f" மற்றும் VWAP-க்கு கீழ் உள்ளது. EMA 9 < EMA 21, RSI:"
+        f" {rsi_val:.1f}\n- **என்ட்ரி வரம்பு:** ₹{spot_price:,.2f} | **இலக்கு:**"
+        f" ₹{target:,.2f} | **ஸ்டாப்லாஸ்:** ₹{stoploss:,.2f}"
     )
   elif spot_price > pdh and (spot_price - pdh) < 20 and rsi_val > 68:
-    st.warning("⚠️ PDH Trap எச்சரிக்கை: Overbought-ல் ஏமாற்றுப் பிரேக்அவுட் சாத்தியம்.")
+    st.warning(
+        f"⚠️ **PDH Liquidity Trap:** விலை ₹{pdh:,.2f}-ஐ தாண்டி Overbought-ல்"
+        " உள்ளது. ஏமாற்றுப் பிரேக்அவுட் சாத்தியம்."
+    )
   else:
-    st.info("⚖️ நோ-டிரேட் மண்டலம் (Range Bound): தெளிவான சிக்னல் வரை காத்திருக்கவும்.")
+    st.info(
+        "⚖️ **நோ-டிரேட் மண்டலம் (Range Bound):** சந்தை குறிப்பிட்ட எல்லைக்குள்"
+        " உள்ளது. தெளிவான பிரேக்அவுட் சிக்னல் வரும் வரை காத்திருக்கவும்."
+    )
 
   # ========== 3. LIVE ALERTS ==========
   st.markdown("---")
   st.subheader("🔔 Live Alerts")
   alerts = []
   if pd.notna(ema9_val) and pd.notna(ema21_val):
-    if ema9_val > ema21_val:
-      alerts.append(f"🟢 **EMA Bullish** — EMA 9 ({ema9_val:,.2f}) > EMA 21 ({ema21_val:,.2f})")
-    else:
-      alerts.append(f"🔴 **EMA Bearish** — EMA 9 ({ema9_val:,.2f}) < EMA 21 ({ema21_val:,.2f})")
+    alerts.append(
+        f"🟢 **EMA Bullish** — EMA 9 ({ema9_val:,.2f}) > EMA 21"
+        f" ({ema21_val:,.2f})"
+        if ema9_val > ema21_val
+        else f"🔴 **EMA Bearish** — EMA 9 ({ema9_val:,.2f}) < EMA 21"
+        f" ({ema21_val:,.2f})"
+    )
   if pd.notna(vwap_val):
-    if spot_price > vwap_val:
-      alerts.append(f"🟢 **Above VWAP** — Price ({spot_price:,.2f}) > VWAP ({vwap_val:,.2f})")
-    else:
-      alerts.append(f"🔴 **Below VWAP** — Price ({spot_price:,.2f}) < VWAP ({vwap_val:,.2f})")
+    alerts.append(
+        f"🟢 **Above VWAP** — Price ({spot_price:,.2f}) > VWAP"
+        f" ({vwap_val:,.2f})"
+        if spot_price > vwap_val
+        else f"🔴 **Below VWAP** — Price ({spot_price:,.2f}) < VWAP"
+        f" ({vwap_val:,.2f})"
+    )
   if pd.notna(rsi_val):
     if rsi_val >= 70:
       alerts.append(f"⚠️ **RSI Overbought** ({rsi_val:.1f})")
@@ -377,11 +397,24 @@ try:
     b1, b2, b3 = st.columns(3)
     b1.metric("Advances", adv)
     b2.metric("Declines", dec)
-    b3.metric("Avg Change", f"{sum(s['Change%'] for s in breadth_stocks)/len(breadth_stocks):+.2f}%")
+    b3.metric(
+        "Avg Change",
+        f"{sum(s['Change%'] for s in breadth_stocks)/len(breadth_stocks):+.2f}%",
+    )
 
     ss = sorted(breadth_stocks, key=lambda x: x["Change%"], reverse=True)
-    g_inner = "".join([f"<div style='border-bottom:1px solid #eee; padding:3px;'><b>{s['Symbol']}</b><br>₹{s['LTP']:,.2f} <span style='color:#00b300;'>(+{s['Change%']}%)</span></div>" for s in ss[:5]])
-    l_inner = "".join([f"<div style='border-bottom:1px solid #eee; padding:3px;'><b>{s['Symbol']}</b><br>₹{s['LTP']:,.2f} <span style='color:#cc0000;'>({s['Change%']}%)</span></div>" for s in ss[-5:][::-1]])
+    g_inner = "".join([
+        f"<div style='border-bottom:1px solid #eee;"
+        f" padding:3px;'><b>{s['Symbol']}</b><br>₹{s['LTP']:,.2f} <span"
+        f" style='color:#00b300;'>(+{s['Change%']}%)</span></div>"
+        for s in ss[:5]
+    ])
+    l_inner = "".join([
+        f"<div style='border-bottom:1px solid #eee;"
+        f" padding:3px;'><b>{s['Symbol']}</b><br>₹{s['LTP']:,.2f} <span"
+        f" style='color:#cc0000;'>({s['Change%']}%)</span></div>"
+        for s in ss[-5:][::-1]
+    ])
 
     st.write(
         f"""
@@ -409,10 +442,9 @@ try:
     cols = st.columns(len(sec_data))
     for i, (name, pct) in enumerate(sec_data.items()):
       with cols[i]:
-        if pct >= 0:
-          st.success(f"{name}: +{pct:.2f}%")
-        else:
-          st.error(f"{name}: {pct:.2f}%")
+        st.success(f"{name}: +{pct:.2f}%") if pct >= 0 else st.error(
+            f"{name}: {pct:.2f}%"
+        )
 
   # ========== 6. OPTION CHAIN ==========
   st.markdown("---")
@@ -429,7 +461,11 @@ try:
     p_ltp = round(max(5.0, 175.0 - (diff * 45)), 2)
     tot_call += c_oi
     tot_put += p_oi
-    sig = "🟢 Put Support" if p_oi > c_oi * 1.15 else ("🔴 Call Resistance" if c_oi > p_oi * 1.15 else "⚖️ Neutral")
+    sig = (
+        "🟢 Put Support"
+        if p_oi > c_oi * 1.15
+        else ("🔴 Call Resistance" if c_oi > p_oi * 1.15 else "⚖️ Neutral")
+    )
     rows.append({
         "Strike": f"₹{s:,}" + (" 🎯 ATM" if s == atm else ""),
         "Call OI": format_lakhs(c_oi),
@@ -441,7 +477,15 @@ try:
 
   pcr = tot_put / tot_call if tot_call > 0 else 0
   pa, pb, pc = st.columns(3)
-  pa.metric("📊 PCR", f"{pcr:.2f}", "🟢 Bullish" if pcr > 1.2 else ("🔴 Bearish" if pcr < 0.8 else "⚖️ Neutral"))
+  pa.metric(
+      "📊 PCR",
+      f"{pcr:.2f}",
+      (
+          "🟢 Bullish"
+          if pcr > 1.2
+          else ("🔴 Bearish" if pcr < 0.8 else "⚖️ Neutral")
+      ),
+  )
   pb.metric("🎯 ATM", f"₹{atm:,}")
   pc.metric("📍 Spot", f"₹{spot_price:,.2f}")
   st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
@@ -452,15 +496,20 @@ try:
   p_col1, p_col2 = st.columns([1, 2])
   with p_col1:
     with st.form("open_trade_form"):
-      pt_strike = st.selectbox("Strike", [atm + (i * 50) for i in range(-2, 3)], index=2)
+      pt_strike = st.selectbox(
+          "Strike", [atm + (i * 50) for i in range(-2, 3)], index=2
+      )
       pt_type = st.radio("Type", ["CE", "PE"], horizontal=True)
       lot_size = st.number_input("Lot Size", min_value=1, value=25)
       lots = st.number_input("Lots", min_value=1, value=1)
       pt_qty = int(lot_size * lots)
-      if pt_type == "CE":
-        est_p = round(max(5.0, 180.0 + ((spot_price - pt_strike) / 50.0 * 45)), 2)
-      else:
-        est_p = round(max(5.0, 175.0 - ((spot_price - pt_strike) / 50.0 * 45)), 2)
+      est_p = (
+          round(max(5.0, 180.0 + ((spot_price - pt_strike) / 50.0 * 45)), 2)
+          if pt_type == "CE"
+          else round(
+              max(5.0, 175.0 - ((spot_price - pt_strike) / 50.0 * 45)), 2
+          )
+      )
       st.write(f"Model Premium: **₹{est_p:,.2f}** | Units: **{pt_qty}**")
       submitted = st.form_submit_button("🚀 Place Model Trade")
     if submitted:
@@ -471,11 +520,20 @@ try:
     if st.session_state.paper_trades:
       t_rows = []
       for t in st.session_state.paper_trades:
-        if t["type"] == "CE":
-          cur_p = round(max(5.0, 180.0 + ((spot_price - t["strike"]) / 50.0 * 45)), 2)
-        else:
-          cur_p = round(max(5.0, 175.0 - ((spot_price - t["strike"]) / 50.0 * 45)), 2)
-        pnl = round((cur_p - t["entry"]) * t["qty"], 2) if t["status"] == "OPEN" else t["pnl"]
+        cur_p = (
+            round(
+                max(5.0, 180.0 + ((spot_price - t["strike"]) / 50.0 * 45)), 2
+            )
+            if t["type"] == "CE"
+            else round(
+                max(5.0, 175.0 - ((spot_price - t["strike"]) / 50.0 * 45)), 2
+            )
+        )
+        pnl = (
+            round((cur_p - t["entry"]) * t["qty"], 2)
+            if t["status"] == "OPEN"
+            else t["pnl"]
+        )
         t_rows.append({
             "ID": t["id"],
             "Trade": f"{t['strike']} {t['type']}",
@@ -486,47 +544,61 @@ try:
             "Status": t["status"],
         })
       st.dataframe(pd.DataFrame(t_rows), hide_index=True)
-      open_t = [t for t in st.session_state.paper_trades if t["status"] == "OPEN"]
+      open_t = [
+          t for t in st.session_state.paper_trades if t["status"] == "OPEN"
+      ]
       if open_t:
         with st.form("close_trade_form"):
           c_id = st.selectbox("Close Trade ID", [t["id"] for t in open_t])
           closed = st.form_submit_button("❌ Close Trade")
         if closed:
           t_obj = next(t for t in open_t if t["id"] == c_id)
-          if t_obj["type"] == "CE":
-            c_ext = round(max(5.0, 180.0 + ((spot_price - t_obj["strike"]) / 50.0 * 45)), 2)
-          else:
-            c_ext = round(max(5.0, 175.0 - ((spot_price - t_obj["strike"]) / 50.0 * 45)), 2)
+          c_ext = (
+              round(
+                  max(5.0, 180.0 + ((spot_price - t_obj["strike"]) / 50.0 * 45)),
+                  2,
+              )
+              if t_obj["type"] == "CE"
+              else round(
+                  max(
+                      5.0,
+                      175.0 - ((spot_price - t_obj["strike"]) / 50.0 * 45),
+                  ),
+                  2,
+              )
+          )
           close_paper_trade(c_id, c_ext)
           st.rerun()
 
-  # ========== 8. CHART & LEVELS ==========
+  # ========== 8. CHART (PLOTLY INTUITIVE VIEW) ==========
   st.markdown("---")
   st.subheader("📈 NIFTY Intraday Chart - Price & VWAP")
   cdf = session_hist[["Close", "VWAP"]].copy().dropna(subset=["Close"])
   if not cdf.empty:
-    chart_plot_df = pd.DataFrame({
-        "Time": cdf.index.strftime("%H:%M"),
-        "Close": cdf["Close"].values,
-        "VWAP": cdf["VWAP"].values,
-    }).set_index("Time")
-    st.line_chart(chart_plot_df, height=400)
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=cdf.index,
+            y=cdf["Close"],
+            mode="lines",
+            name="Nifty Price",
+            line=dict(color="#0052cc", width=2),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=cdf.index,
+            y=cdf["VWAP"],
+            mode="lines",
+            name="VWAP",
+            line=dict(color="#ff9900", width=1.5, dash="dash"),
+        )
+    )
 
-    st.markdown("### 🎯 Key Pivots & Levels")
-    st.write(f"🔺 **PDH:** ₹{pdh:,.2f} | 🔴 **R2:** ₹{R2:,.2f} | 🔴 **R1:** ₹{R1:,.2f}")
-    st.write(f"🎯 **CPR:** ₹{BC:,.2f} (BC) - ₹{PP:,.2f} (Pivot) - ₹{TC:,.2f} (TC)")
-    st.write(f"🟢 **S1:** ₹{S1:,.2f} | 🟢 **S2:** ₹{S2:,.2f} | 🔻 **PDL:** ₹{pdl:,.2f}")
+    # Dynamic Padding for Y-Axis
+    min_val = min(cdf["Close"].min(), cdf["VWAP"].min()) - 15
+    max_val = max(cdf["Close"].max(), cdf["VWAP"].max()) + 15
 
-  # ========== 9. TECHNICAL INDICATORS & NEWS ==========
-  st.markdown("---")
-  st.subheader("📊 Technical Indicators & News")
-  st.write("🔹 **EMA 9:** ₹{:,.2f} | 🔹 **EMA 21:** ₹{:,.2f}".format(ema9_val, ema21_val))
-  st.write("🔹 **VWAP:** ₹{:,.2f} | 🔹 **RSI (14):** {:.2f}".format(vwap_val, rsi_val))
-
-  for n in get_market_news():
-    st.write(n)
-
-except Exception as err:
-  st.error(f"பிழை விவரம்: {err}")
-  st.stop()
-      
+    fig.update_layout(
+        height=380,
+        margin=dic
