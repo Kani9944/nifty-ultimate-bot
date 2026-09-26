@@ -128,7 +128,8 @@ try:
         max_y = float(chart_df['Close'].max() + 20)
         
         # சீரான வளைவுகளைக் காட்டும் அட்வான்ஸ்டு சார்ட் மெத்தட்
-        st.area_chart(chart_df, y_label="Nifty Price", use_container_width=True)
+    st.area_chart(chart_df, y_label="Nifty Price", use_container_width=True, y_min=min_y, y_max=max_y)
+
 
 except Exception as e:
     st.error(f"புதுப்பிப்பதில் சிறு சிக்கல்: {e}")
