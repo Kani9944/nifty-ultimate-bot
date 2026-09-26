@@ -555,7 +555,7 @@ try:
     for n in news_items:
       st.write(n)
 
-  # சார்ட் (VWAP, CPR Band, Current Price Marker & Labels)
+  # சார்ட் பகுதி (VWAP, CPR Band, Current Price Marker & Labels)
   st.markdown("---")
   if session_date == today_ist:
     st.subheader("📈 NIFTY 50 - Today's Intraday Levels Chart")
@@ -573,7 +573,7 @@ try:
   chart_df["Time"] = chart_df.index
   chart_df = chart_df.reset_index(drop=True)
 
-  # வலதுபுறத்தில் லேபிள்களுக்கு 15 நிமிடங்கள் Padding
+  # வலதுபுறத்தில் லேபிள்களுக்கு 15 நிமிடங்கள் இடைவெளி
   chart_start = chart_df["Time"].min()
   chart_end = chart_df["Time"].max() + pd.Timedelta(minutes=15)
 
@@ -639,4 +639,110 @@ try:
       .mark_point(color="#0052cc", filled=True, size=85, shape="circle")
       .encode(
           x=alt.X("Time:T"),
-          y=alt.
+          y=alt.Y(
+              "Close:Q", scale=alt.Scale(domain=[min_val, max_val], zero=False)
+          ),
+      )
+  )
+
+  # 4. CPR Band (BC முதல் TC வரை மெல்லிய வண்ணப் பட்டை)
+  cpr_band_data = pd.DataFrame([{
+      "Start": chart_start,
+      "End": chart_end,
+      "Lower": float(BC),
+      "Upper": float(TC),
+  }])
+
+  cpr_band = (
+      alt.Chart(cpr_band_data)
+      .mark_rect(color="#9ecae1", opacity=0.18)
+      .encode(
+          x=alt.X("Start:T"),
+          x2="End:T",
+          y=alt.Y(
+              "Lower:Q", scale=alt.Scale(domain=[min_val, max_val], zero=False)
+          ),
+          y2="Upper:Q",
+      )
+  )
+
+  # 5. PDH / R1 / TC / Pivot / BC / S1 / PDL கிடைமட்டக் கோடுகள்
+  level_rules = (
+      alt.Chart(levels_data)
+      .mark_rule(strokeDash=[4, 4], strokeWidth=1.2)
+      .encode(
+          y=alt.Y(
+              "Value:Q", scale=alt.Scale(domain=[min_val, max_val], zero=False)
+          ),
+          color=alt.Color("Color:N", scale=None, legend=None),
+      )
+  )
+
+  # 6. வலதுபுறம் Key-level பெயர்கள் (Labels)
+  level_labels = (
+      alt.Chart(levels_data)
+      .mark_text(align="left", dx=5, dy=-4, fontSize=11, fontWeight="bold")
+      .encode(
+          x=alt.X("Time:T"),
+          y=alt.Y(
+              "Value:Q", scale=alt.Scale(domain=[min_val, max_val], zero=False)
+          ),
+          text=alt.Text("Level:N"),
+          color=alt.Color("Color:N", scale=None, legend=None),
+      )
+  )
+
+  # 7. Current Price Label
+  current_price_label_data = pd.DataFrame([{
+      "Time": chart_df["Time"].max() + pd.Timedelta(minutes=3),
+      "Price": spot_price,
+      "Label": f"LTP ₹{spot_price:,.2f}",
+  }])
+
+  current_price_label = (
+      alt.Chart(current_price_label_data)
+      .mark_text(
+          align="left",
+          dx=5,
+          dy=10,
+          fontSize=11,
+          fontWeight="bold",
+          color="#0052cc",
+      )
+      .encode(
+          x=alt.X("Time:T"),
+          y=alt.Y(
+              "Price:Q", scale=alt.Scale(domain=[min_val, max_val], zero=False)
+          ),
+          text=alt.Text("Label:N"),
+      )
+  )
+
+  # 8. அனைத்து லேயர்களையும் இணைத்தல்
+  final_chart = (
+      cpr_band
+      + level_rules
+      + price_line
+      + vwap_line
+      + price_dot
+      + level_labels
+      + current_price_label
+  ).resolve_scale(
+      x="shared",
+      y="shared",
+  ).properties(
+      height=460,
+      title="NIFTY Intraday Price, VWAP, CPR and Key Levels",
+  )
+
+  st.altair_chart(final_chart, use_container_width=True)
+
+  # அடிக்குறிப்பு
+  st.caption(
+      "🔵 Price  |  🟠 Session VWAP  |  🔴 PDH/R1  |  🔵 CPR (TC/Pivot/BC)  |"
+      "  🟢 S1/PDL  —  Values are Yahoo Finance delayed feed-based."
+  )
+
+except Exception as e:
+  st.error(f"Analysis pipeline-ல் எதிர்பாராத பிழை: {e}")
+  st.stop()
