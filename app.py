@@ -16,7 +16,7 @@ st_autorefresh(interval=30 * 1000, key="nifty_pro_refresh")
 st.title("🦅 நிஃப்டி 50 - ஸ்மார்ட் மணி & மார்க்கெட் மானிட்டர்")
 
 
-# எண்களை லட்சங்களில் (Lakhs) காட்டும் உதவி முறை
+# எண்களை லட்சங்களில் காட்டும் முறை
 def format_lakhs(val):
   if val is None or pd.isna(val):
     return "0.00L"
@@ -44,7 +44,7 @@ def get_heavyweight_intraday(symbol):
   return yf.Ticker(symbol).history(period="1d", interval="5m")
 
 
-# தமிழ் நேரலை வணிகச் செய்திகள் (Tamil Business News RSS)
+# தமிழ் நேரலை வணிகச் செய்திகள்
 @st.cache_data(ttl=300)
 def get_market_news():
   fallback = ["📰 தமிழ் வணிகச் செய்திகள் தற்போது கிடைக்கவில்லை."]
@@ -124,7 +124,7 @@ def trend_label(price, indicator):
   return "🟢 ஏற்றம் (Bullish)" if price > indicator else "🩸 இறக்கம் (Bearish)"
 
 
-# சந்தைத் தரவுகளைப் பெறுதல்
+# சந்தைத் தரவுகள் எடுத்தல்
 try:
   hist = get_stock_data("^NSEI", "5d", "5m")
   daily_hist = get_stock_data("^NSEI", "5d", "1d")
@@ -204,7 +204,7 @@ try:
   R1, S1 = (2 * PP) - pdl, (2 * PP) - pdh
   R2, S2 = PP + (pdh - pdl), PP - (pdh - pdl)
 
-  # Session VWAP கணக்கீடு
+  # Session VWAP
   tp = (session_hist["High"] + session_hist["Low"] + session_hist["Close"]) / 3
   v_cum = session_hist["Volume"].cumsum()
   session_hist["VWAP"] = np.where(
@@ -513,7 +513,7 @@ try:
   else:
     st.caption("தற்போது நேரலை எச்சரிக்கைகள் ஏதுமில்லை.")
 
-  # சார்ட் பகுதி (முழுமையாகத் தமிழில் + Auto Locked Scale)
+  # சார்ட் பகுதி (பாதுகாப்பான ஒற்றை வரிசை Tooltip வடிவம்)
   st.markdown("---")
   st.subheader("📈 நிஃப்டி இன்ட்ராடே சார்ட் - விலை / VWAP / CPR")
 
@@ -604,7 +604,7 @@ try:
       domain=[y_min, y_max], clamp=True, zero=False, nice=False, padding=0
   )
 
-  # 1. Price Line
+  # 1. Price Line (பாதுகாப்பான Tooltip)
   price_line = (
       alt.Chart(chart_df)
       .mark_line(color="#0052cc", strokeWidth=2.5)
@@ -621,10 +621,7 @@ try:
               scale=x_scale,
           ),
           y=alt.Y("Close:Q", title="விலை (₹)", scale=y_scale),
-          tooltip=[
-              alt.Tooltip("Time:T", title="நேரம்", format="%d-%b %H:%M"),
-              alt.Tooltip("Close:Q", title="விலை", format=",.2f"),
-          ],
+          tooltip="Close:Q",
       )
   )
 
@@ -635,5 +632,17 @@ try:
       .encode(
           x=alt.X("Time:T", scale=x_scale),
           y=alt.Y("VWAP:Q", scale=y_scale),
-          tooltip=[
-              alt.Tooltip("Time:T", title="நேரம்", format="%d-%b %H:%M")
+          tooltip="VWAP:Q",
+      )
+  )
+
+  # 3. CPR Band
+  cpr_band_data = pd.DataFrame([{
+      "_Start": chart_start,
+      "_End": chart_end,
+      "_Lower": float(BC),
+      "_Upper": float(TC),
+  }])
+  cpr_band = (
+      alt.Chart(cpr_band_data)
+      .mark_re
