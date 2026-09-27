@@ -194,4 +194,132 @@ c2.metric("Pivot", "Rs {:,.2f}".format(Pc))
 c2.metric("Spot", "Rs {:,.2f}".format(spot_price))
 c3.metric("S1", "Rs {:,.2f}".format(S1c))
 c3.metric("S2", "Rs {:,.2f}".format(S2c))
-c3.metric("S3", "Rs {:,.2f}".format(S3c))
+c3.metric("S3", "Rs {:,.2f}".format(S3c))st.markdown("---")
+st.subheader("NIFTY Chart & CPR")
+cdf = session_hist[["Close", "VWAP"]].copy()
+cdf = cdf.replace([np.inf, -np.inf], np.nan).dropna(subset=["Close"])
+cdf = cdf[cdf["Close"] > 0].copy()
+if not cdf.empty:
+    fig = go.Figure()
+    fig.add_hrect(y0=BC, y1=TC, fillcolor="LightSkyBlue", opacity=0.15, line_width=0, layer="below")
+    fig.add_trace(go.Scatter(x=cdf.index, y=cdf["Close"], mode="lines", name="Price", line=dict(color="#0052cc", width=2)))
+    fig.add_trace(go.Scatter(x=cdf.index, y=cdf["VWAP"], mode="lines", name="VWAP", line=dict(color="#ff9900", width=1.5, dash="dash")))
+    for nm, vl, cl in [("TC", TC, "#66b3ff"), ("Pivot", PP, "#0066cc"), ("BC", BC, "#3399ff"), ("R1", R1, "#ff6666"), ("S1", S1, "#66cc66"), ("PDH", pdh, "#cc0000"), ("PDL", pdl, "#00b300")]:
+        fig.add_trace(go.Scatter(x=[cdf.index[0], cdf.index[-1]], y=[vl, vl], mode="lines", name=nm, line=dict(color=cl, width=1, dash="dot")))
+    cvals = list(cdf["Close"]) + list(cdf["VWAP"].dropna()) + [pdh, pdl, R1, R2, S1, S2, PP, BC, TC]
+    vv = [float(v) for v in cvals if pd.notna(v) and np.isfinite(v) and abs(float(v) - spot_price) <= 500]
+    if vv:
+        lo = min(vv + [spot_price])
+        hi = max(vv + [spot_price])
+        pad = max(75.0, (hi - lo) * 0.20)
+        ymn = min(lo - pad, spot_price - 200)
+        ymx = max(hi + pad, spot_price + 200)
+    else:
+        ymn = spot_price - 200
+        ymx = spot_price + 200
+    fig.update_layout(height=420, margin=dict(l=10, r=10, t=25, b=25), xaxis=dict(tickformat="%H:%M"), yaxis=dict(range=[ymn, ymx], fixedrange=False), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    st.warning("Chart unavailable.")
+
+st.markdown("---")
+st.subheader("Buy/Sell Volume (Est.)")
+try:
+    vd = session_hist[["Open", "High", "Low", "Close", "Volume"]].dropna()
+    vd = vd[vd["Volume"] > 0]
+    if len(vd) >= 5:
+        ag = vd.resample("15min").agg({"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"}).dropna()
+        if len(ag) >= 2:
+            bv = []
+            sv = []
+            tl = []
+            for i, r in ag.iterrows():
+                tv = float(r["Volume"])
+                o = float(r["Open"])
+                c = float(r["Close"])
+                h = float(r["High"])
+                l = float(r["Low"])
+                rng = h - l if h > l else 1
+                if c >= o:
+                    br = (c - o) / rng if rng > 0 else 0.5
+                    brt = 0.5 + (br * 0.4)
+                    if brt > 0.85:
+                        brt = 0.85
+                else:
+                    br = (o - c) / rng if rng > 0 else 0.5
+                    brt = 0.5 - (br * 0.4)
+                    if brt < 0.15:
+                        brt = 0.15
+                bv.append(tv * brt)
+                sv.append(tv * (1 - brt))
+                tl.append(i.strftime("%H:%M"))
+            fv = go.Figure()
+            fv.add_trace(go.Bar(x=tl, y=bv, name="Buy", marker_color="#00b300"))
+            fv.add_trace(go.Bar(x=tl, y=sv, name="Sell", marker_color="#cc0000"))
+            fv.update_layout(barmode="group", height=320, xaxis_title="Time", yaxis_title="Vol")
+            st.plotly_chart(fv, use_container_width=True)
+            tb = sum(bv)
+            ts = sum(sv)
+            tot = tb + ts
+            if tot > 0:
+                bp = (tb / tot) * 100
+                st.write("Buy%: {:.1f}% | Sell%: {:.1f}%".format(bp, 100 - bp))
+except Exception:
+    st.caption("Volume unavailable.")
+
+st.markdown("---")
+st.subheader("Pattern Visual Chart")
+try:
+    vdf = session_hist[["High", "Low", "Close"]].dropna()
+    if len(vdf) >= 20:
+        vhi = vdf["High"].values
+        vlo = vdf["Low"].values
+        vcl = vdf["Close"].values
+        vt = vdf.index
+        shi = []
+        shv = []
+        for i in range(2, len(vhi) - 2):
+            if vhi[i] > vhi[i-1] and vhi[i] > vhi[i-2] and vhi[i] > vhi[i+1] and vhi[i] > vhi[i+2]:
+                shi.append(i)
+                shv.append(float(vhi[i]))
+        sli = []
+        slv = []
+        for i in range(2, len(vlo) - 2):
+            if vlo[i] < vlo[i-1] and vlo[i] < vlo[i-2] and vlo[i] < vlo[i+1] and vlo[i] < vlo[i+2]:
+                sli.append(i)
+                slv.append(float(vlo[i]))
+        vf = go.Figure()
+        vf.add_trace(go.Scatter(x=vt, y=vcl, mode="lines", name="Price", line=dict(color="#0052cc", width=2.5)))
+        if shi:
+            vf.add_trace(go.Scatter(x=[vt[i] for i in shi], y=shv, mode="markers+text", name="H", marker=dict(color="#cc0000", size=10, symbol="triangle-down"), text=["H" + str(k+1) for k in range(len(shi))], textposition="top center", textfont=dict(size=9, color="#cc0000")))
+        if sli:
+            vf.add_trace(go.Scatter(x=[vt[i] for i in sli], y=slv, mode="markers+text", name="L", marker=dict(color="#00b300", size=10, symbol="triangle-up"), text=["L" + str(k+1) for k in range(len(sli))], textposition="bottom center", textfont=dict(size=9, color="#00b300")))
+        vf.update_layout(height=400, margin=dict(l=10, r=10, t=25, b=25), xaxis=dict(title="Time", tickformat="%H:%M"), yaxis=dict(title="Price"), hovermode="x unified")
+        st.plotly_chart(vf, use_container_width=True)
+        if len(sli) >= 2 and slv[-2] > 0 and abs(slv[-2] - slv[-1]) / slv[-2] < 0.006:
+            st.info("Possible W / Double Bottom.")
+        if len(shi) >= 2 and shv[-2] > 0 and abs(shv[-2] - shv[-1]) / shv[-2] < 0.006:
+            st.info("Possible M / Double Top.")
+except Exception:
+    st.caption("Pattern chart unavailable.")
+
+st.markdown("---")
+st.subheader("Technical Indicators")
+i1, i2, i3, i4 = st.columns(4)
+i1.metric("EMA 9", "Rs {:,.2f}".format(ema9_val))
+i2.metric("EMA 21", "Rs {:,.2f}".format(ema21_val))
+i3.metric("VWAP", "Rs {:,.2f}".format(vwap_val))
+if rsi_val >= 70:
+    rl = "Overbought"
+elif rsi_val <= 30:
+    rl = "Oversold"
+else:
+    rl = "Neutral"
+i4.metric("RSI", "{:.2f}".format(rsi_val), rl)
+
+st.markdown("---")
+st.subheader("வர்த்தக செய்திகள்")
+for item in get_news():
+    st.markdown(item)
+
+st.caption("Yahoo Finance may be delayed. Not financial advice.")
