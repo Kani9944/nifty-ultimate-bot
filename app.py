@@ -1,3 +1,4 @@
+
 import feedparser
 import numpy as np
 import pandas as pd
@@ -480,14 +481,68 @@ try:
             r_hi = hi[-30:]
             r_lo = lo[-30:]
 
+            # Double Top Check
             mx_h = max(r_hi)
             mx_i = list(r_hi).index(mx_h)
-            sec_list = [h for i, h in enumerate(r_hi) if abs(i - mx_i) > 5]
+            sec_list = []
+            for i, h in enumerate(r_hi):
+                if abs(i - mx_i) > 5:
+                    sec_list.append(h)
+
             if sec_list:
                 sec_mx = max(sec_list)
                 if sec_mx > 0 and abs(mx_h - sec_mx) / mx_h < 0.003 and cl[-1] < mx_h * 0.995:
                     patterns.append(("POSSIBLE DOUBLE TOP", "Two similar peaks - breakdown needed.", "#cc0000"))
 
+            # Double Bottom Check (வரி முறிந்து பிழை வராமல் மாற்றப்பட்டுள்ளது)
             mn_l = min(r_lo)
             mn_i = list(r_lo).index(mn_l)
-            sec_l = [l for i, l in enumerate(r_lo) if abs(i - mn_
+            sec_l = []
+            for i, l in enumerate(r_lo):
+                if abs(i - mn_i) > 5:
+                    sec_l.append(l)
+
+            if sec_l:
+                sec_mn = min(sec_l)
+                if abs(mn_l - sec_mn) / mn_l < 0.003 and cl[-1] > mn_l * 1.005:
+                    patterns.append(("POSSIBLE DOUBLE BOTTOM", "Two similar dips - breakout needed.", "#00b300"))
+
+        if len(hi) >= 20 and min(lo[-20:]) > 0:
+            rng_p = (max(hi[-20:]) - min(lo[-20:])) / min(lo[-20:]) * 100
+            if rng_p < 0.5:
+                patterns.append(("CONSOLIDATION", "Narrow range - breakout pending.", "#ff9900"))
+
+    if patterns:
+        for nm, desc, col in patterns:
+            st.markdown(
+                f"""
+                <div style="padding:8px 12px;margin-bottom:6px;background:#f8f9fa;border-left:4px solid {col};border-radius:6px;">
+                    <b style="color:{col};">{nm}</b><br>
+                    <span style="font-size:13px;color:#555;">{desc}</span>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+    else:
+        st.caption("No clear pattern detected.")
+except Exception:
+    st.caption("Advanced pattern detection unavailable.")
+
+# ===== 9. INDICATORS =====
+st.markdown("---")
+st.subheader("Technical Indicators")
+i1, i2, i3, i4 = st.columns(4)
+i1.metric("EMA 9", f"Rs {ema9_val:,.2f}")
+i2.metric("EMA 21", f"Rs {ema21_val:,.2f}")
+i3.metric("VWAP", f"Rs {vwap_val:,.2f}")
+
+rsi_lbl = "Overbought" if rsi_val >= 70 else ("Oversold" if rsi_val <= 30 else "Neutral")
+i4.metric("RSI", f"{rsi_val:.2f}", rsi_lbl)
+
+# ===== 10. NEWS =====
+st.markdown("---")
+st.subheader("வர்த்தக செய்திகள்")
+for item in get_news():
+    st.markdown(item)
+
+st.caption("Yahoo Finance data may be delayed. Rule-based analysis only; not financial advice.")
