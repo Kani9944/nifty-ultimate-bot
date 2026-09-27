@@ -7,7 +7,7 @@ import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 import yfinance as yf
 
-# Page setup & auto-refresh (60 seconds)
+# பக்க கட்டமைப்பு & ஆட்டோ-ரீஃப்ரெஷ் (60 விநாடிகள்)
 st.set_page_config(page_title="Nifty Smart Monitor", layout="wide")
 st_autorefresh(interval=60 * 1000, key="refresh")
 st.title("NIFTY 50 - Smart Money & Market Monitor")
@@ -101,7 +101,7 @@ def get_news():
     return out[:6] if out else ["வர்த்தக செய்திகள் தற்காலிகமாக கிடைக்கவில்லை."]
 
 
-# Market Data Fetching
+# சந்தை தரவுகள் எடுக்கும் பகுதி
 try:
     hist = get_stock_data("^NSEI", "5d", "5m")
     daily = get_stock_data("^NSEI", "5d", "1d")
@@ -142,7 +142,7 @@ pdh = float(prev_day["High"])
 pdl = float(prev_day["Low"])
 pdc = float(prev_day["Close"])
 
-# CPR Levels
+# CPR அளவுகள் கணக்கீடு
 PP = (pdh + pdl + pdc) / 3
 BC = min((pdh + pdl) / 2, (2 * PP) - ((pdh + pdl) / 2))
 TC = max((pdh + pdl) / 2, (2 * PP) - ((pdh + pdl) / 2))
@@ -178,7 +178,7 @@ vix_col = "#cc0000" if (vix_5m is not None and vix_5m >= 0) else "#00b300"
 bn_s = f"Rs {bn_p:,.2f}" if bn_p is not None else "N/A"
 vix_s = f"{vix_v:.2f}" if vix_v is not None else "N/A"
 
-# Header UI Cards
+# டாஷ்போர்டு கார்டுகள்
 st.caption(f"Session Date: {session_date}")
 st.markdown(
     f"""
@@ -239,7 +239,7 @@ with cp3:
     st.metric("S2", f"Rs {S2_c:,.2f}")
     st.metric("S3", f"Rs {S3_c:,.2f}")
 
-# ===== 2. GAP UP / DOWN CALCULATION =====
+# ===== 2. GAP UP / DOWN =====
 st.markdown("---")
 st.subheader("Gap Up / Gap Down (3-min Candle)")
 try:
@@ -490,5 +490,4 @@ try:
 
             mn_l = min(r_lo)
             mn_i = list(r_lo).index(mn_l)
-            sec_l = [l for i, l in enumerate(r_lo) if abs(i - mn_i) > 5]
-            if
+            sec_l = [l for i, l in enumerate(r_lo) if abs(i - mn_
