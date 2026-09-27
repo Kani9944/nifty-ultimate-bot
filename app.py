@@ -7,6 +7,7 @@ import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 import yfinance as yf
 
+# பக்க கட்டமைப்பு & ஆட்டோ-ரீஃப்ரெஷ் (60 விநாடிகள்)
 st.set_page_config(page_title="Nifty Smart Monitor", layout="wide")
 st_autorefresh(interval=60 * 1000, key="refresh")
 st.title("NIFTY 50 - Smart Money & Market Monitor")
@@ -57,16 +58,18 @@ def get_breadth():
                          group_by="ticker", progress=False, threads=True)
         for s in syms:
             try:
-                h = df[s].dropna()
-                if len(h) >= 2:
-                    c = float(h["Close"].iloc[-1])
-                    p = float(h["Close"].iloc[-2])
-                    if p > 0:
-                        out.append({
-                            "sym": s.replace(".NS", ""),
-                            "ltp": round(c, 2),
-                            "chg": round(((c - p) / p) * 100, 2)
-                        })
+                sub_df = df[s] if s in df else None
+                if sub_df is not None:
+                    h = sub_df.dropna()
+                    if len(h) >= 2:
+                        c = float(h["Close"].iloc[-1])
+                        p = float(h["Close"].iloc[-2])
+                        if p > 0:
+                            out.append({
+                                "sym": s.replace(".NS", ""),
+                                "ltp": round(c, 2),
+                                "chg": round(((c - p) / p) * 100, 2)
+                            })
             except Exception:
                 pass
     except Exception:
@@ -98,6 +101,7 @@ def get_news():
     return out[:6] if out else ["வர்த்தக செய்திகள் தற்காலிகமாக கிடைக்கவில்லை."]
 
 
+# தரவு எடுக்கும் பகுதி
 try:
     hist = get_stock_data("^NSEI", "5d", "5m")
     daily = get_stock_data("^NSEI", "5d", "1d")
@@ -138,6 +142,7 @@ pdh = float(prev_day["High"])
 pdl = float(prev_day["Low"])
 pdc = float(prev_day["Close"])
 
+# CPR கணக்கீடு
 PP = (pdh + pdl + pdc) / 3
 BC = min((pdh + pdl) / 2, (2 * PP) - ((pdh + pdl) / 2))
 TC = max((pdh + pdl) / 2, (2 * PP) - ((pdh + pdl) / 2))
@@ -173,6 +178,7 @@ vix_col = "#cc0000" if (vix_5m is not None and vix_5m >= 0) else "#00b300"
 bn_s = f"Rs {bn_p:,.2f}" if bn_p is not None else "N/A"
 vix_s = f"{vix_v:.2f}" if vix_v is not None else "N/A"
 
+# டாஷ்போர்டு கார்டுகள்
 st.caption(f"Session Date: {session_date}")
 st.markdown(
     f"""
@@ -209,7 +215,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ===== CLASSIC PIVOTS =====
+# ===== 1. CLASSIC PIVOTS =====
 st.markdown("---")
 st.subheader("Classic Pivot Points (R3 / R2 / R1 / P / S1 / S2 / S3)")
 P_classic = (pdh + pdl + pdc) / 3
@@ -233,11 +239,11 @@ with cp3:
     st.metric("S2", f"Rs {S2_c:,.2f}")
     st.metric("S3", f"Rs {S3_c:,.2f}")
 
-# ===== GAP UP/DOWN =====
+# ===== 2. GAP UP / DOWN CALCULATION =====
 st.markdown("---")
 st.subheader("Gap Up / Gap Down (3-min Candle)")
 try:
-    hist_1m = get_stock_data("^NSEI", "5d", "1m")
+    hist_1m = get_stock_data("^NSEI", "2d", "1m")
     if not hist_1m.empty:
         hist_1m.index = pd.to_datetime(hist_1m.index)
         hist_1m.index = hist_1m.index.tz_convert("Asia/Kolkata") if hist_1m.index.tz is not None else hist_1m.index.tz_localize("Asia/Kolkata")
@@ -307,7 +313,7 @@ try:
 except Exception:
     st.caption("3-min data unavailable.")
 
-# ===== 5-YEAR ANALYSIS =====
+# ===== 3. 5-YEAR ANALYSIS =====
 st.markdown("---")
 st.subheader("5-Year Historical Analysis")
 try:
@@ -343,7 +349,7 @@ try:
 except Exception:
     st.caption("5-year data unavailable.")
 
-# ===== MULTI-TIMEFRAME =====
+# ===== 4. MULTI-TIMEFRAME TREND =====
 st.markdown("---")
 st.subheader("Multi-Timeframe Trend")
 try:
@@ -376,20 +382,20 @@ try:
 except Exception:
     st.caption("Multi-timeframe data unavailable.")
 
-# ===== MARKET STRUCTURE =====
+# ===== 5. MARKET STRUCTURE ALIGNMENT =====
 st.markdown("---")
 st.subheader("Market Structure Alignment")
 b_cond = [spot_price > TC, spot_price > vwap_val, ema9_val > ema21_val, rsi_val >= 55]
 s_cond = [spot_price < BC, spot_price < vwap_val, ema9_val < ema21_val, rsi_val <= 45]
 
 if all(b_cond):
-    st.success("Bullish Alignment.")
+    st.success("Bullish Alignment (Buy Signals Active).")
 elif all(s_cond):
-    st.error("Bearish Alignment.")
+    st.error("Bearish Alignment (Sell Signals Active).")
 else:
-    st.info("Mixed / Range-Bound.")
+    st.info("Mixed / Range-Bound (Wait for clear breakout).")
 
-# ===== BREADTH =====
+# ===== 6. MARKET BREADTH =====
 st.markdown("---")
 st.subheader("Market Breadth - 18 Watchlist")
 b_stocks = get_breadth()
@@ -413,7 +419,7 @@ if b_stocks:
         unsafe_allow_html=True
     )
 
-# ===== CHART =====
+# ===== 7. CHART & CPR =====
 st.markdown("---")
 st.subheader("NIFTY Chart & CPR")
 cdf = session_hist[["Close", "VWAP"]].copy().replace([np.inf, -np.inf], np.nan).dropna(subset=["Close"])
@@ -452,48 +458,36 @@ if not cdf.empty:
 else:
     st.warning("Chart unavailable.")
 
-# ===== ADVANCED PATTERNS =====
+# ===== 8. ADVANCED PATTERNS =====
 st.markdown("---")
 st.subheader("Advanced Pattern Detection")
-p_data = session_hist[["High", "Low", "Close"]].copy().dropna()
-patterns = []
+try:
+    p_data = session_hist[["High", "Low", "Close"]].copy().dropna()
+    patterns = []
 
-if len(p_data) >= 30:
-    hi = p_data["High"].values
-    lo = p_data["Low"].values
-    cl = p_data["Close"].values
+    if len(p_data) >= 20:
+        hi = p_data["High"].values
+        lo = p_data["Low"].values
+        cl = p_data["Close"].values
 
-    if max(hi[-5:]) > max(hi[-10:-5]) and min(lo[-5:]) > min(lo[-10:-5]):
-        patterns.append(("UPWARD BIAS", "Recent 5-bar range above prior.", "#00b300"))
-    elif max(hi[-5:]) < max(hi[-10:-5]) and min(lo[-5:]) < min(lo[-10:-5]):
-        patterns.append(("DOWNWARD BIAS", "Recent 5-bar range below prior.", "#cc0000"))
+        if len(hi) >= 10:
+            if max(hi[-5:]) > max(hi[-10:-5]) and min(lo[-5:]) > min(lo[-10:-5]):
+                patterns.append(("UPWARD BIAS", "Recent 5-bar range above prior range.", "#00b300"))
+            elif max(hi[-5:]) < max(hi[-10:-5]) and min(lo[-5:]) < min(lo[-10:-5]):
+                patterns.append(("DOWNWARD BIAS", "Recent 5-bar range below prior range.", "#cc0000"))
 
-    r_hi = hi[-30:]
-    r_lo = lo[-30:]
+        if len(hi) >= 30:
+            r_hi = hi[-30:]
+            r_lo = lo[-30:]
 
-    if len(r_hi) >= 10:
-        mx_h = max(r_hi)
-        mx_i = list(r_hi).index(mx_h)
-        sec_list = [h for i, h in enumerate(r_hi) if abs(i - mx_i) > 5]
-        if sec_list:
-            sec_mx = max(sec_list)
-            if sec_mx > 0 and abs(mx_h - sec_mx) / mx_h < 0.003 and cl[-1] < mx_h * 0.995:
-                patterns.append(("POSSIBLE DOUBLE TOP", "Two similar peaks - breakdown needed.", "#cc0000"))
+            mx_h = max(r_hi)
+            mx_i = list(r_hi).index(mx_h)
+            sec_list = [h for i, h in enumerate(r_hi) if abs(i - mx_i) > 5]
+            if sec_list:
+                sec_mx = max(sec_list)
+                if sec_mx > 0 and abs(mx_h - sec_mx) / mx_h < 0.003 and cl[-1] < mx_h * 0.995:
+                    patterns.append(("POSSIBLE DOUBLE TOP", "Two similar peaks - breakdown needed.", "#cc0000"))
 
-    if len(r_lo) >= 10:
-        mn_l = min(r_lo)
-        mn_i = list(r_lo).index(mn_l)
-        sec_l = [l for i, l in enumerate(r_lo) if abs(i - mn_i) > 5]
-        if sec_l:
-            sec_mn = min(sec_l)
-            if abs(mn_l - sec_mn) / mn_l < 0.003 and cl[-1] > mn_l * 1.005:
-                patterns.append(("POSSIBLE DOUBLE BOTTOM", "Two similar dips - breakout needed.", "#00b300"))
-
-    if min(lo[-20:]) > 0:
-        rng_p = (max(hi[-20:]) - min(lo[-20:])) / min(lo[-20:]) * 100
-        if rng_p < 0.5:
-            patterns.append(("CONSOLIDATION", "Narrow range - breakout pending.", "#ff9900"))
-
-if patterns:
-    for nm, desc, col in patterns:
-        st
+            mn_l = min(r_lo)
+            mn_i = list(r_lo).index(mn_l)
+            sec_l = [l for i, l in enumerate(r_lo) if abs(i - mn_i) > 
