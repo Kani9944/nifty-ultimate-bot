@@ -45,16 +45,13 @@ def get_long_history(sym):
 
 @st.cache_data(ttl=300)
 def get_breadth():
-    syms = [
-        "ADANIENT.NS", "ASIANPAINT.NS", "AXISBANK.NS", "BAJFINANCE.NS",
-        "BHARTIARTL.NS", "HDFCBANK.NS", "ICICIBANK.NS", "INFY.NS",
-        "ITC.NS", "KOTAKBANK.NS", "LT.NS", "M&M.NS", "MARUTI.NS",
-        "RELIANCE.NS", "SBIN.NS", "TCS.NS", "TATAMOTORS.NS", "TITAN.NS"
-    ]
+    syms = ["ADANIENT.NS", "ASIANPAINT.NS", "AXISBANK.NS", "BAJFINANCE.NS",
+            "BHARTIARTL.NS", "HDFCBANK.NS", "ICICIBANK.NS", "INFY.NS",
+            "ITC.NS", "KOTAKBANK.NS", "LT.NS", "M&M.NS", "MARUTI.NS",
+            "RELIANCE.NS", "SBIN.NS", "TCS.NS", "TATAMOTORS.NS", "TITAN.NS"]
     out = []
     try:
-        df = yf.download(syms, period="2d", interval="1d",
-                         group_by="ticker", progress=False, threads=True)
+        df = yf.download(syms, period="2d", interval="1d", group_by="ticker", progress=False, threads=True)
         for s in syms:
             try:
                 h = df[s].dropna()
@@ -62,11 +59,7 @@ def get_breadth():
                     c = float(h["Close"].iloc[-1])
                     p = float(h["Close"].iloc[-2])
                     if p > 0:
-                        out.append({
-                            "sym": s.replace(".NS", ""),
-                            "ltp": round(c, 2),
-                            "chg": round(((c - p) / p) * 100, 2)
-                        })
+                        out.append({"sym": s.replace(".NS", ""), "ltp": round(c, 2), "chg": round(((c - p) / p) * 100, 2)})
             except Exception:
                 pass
     except Exception:
@@ -76,10 +69,8 @@ def get_breadth():
 
 @st.cache_data(ttl=300)
 def get_news():
-    feeds = [
-        "https://tamil.goodreturns.in/rss/feeds/tamil-money-news-fb.xml",
-        "https://www.moneycontrol.com/rss/marketreports.xml",
-    ]
+    feeds = ["https://tamil.goodreturns.in/rss/feeds/tamil-money-news-fb.xml",
+             "https://www.moneycontrol.com/rss/marketreports.xml"]
     out = []
     for u in feeds:
         try:
@@ -104,7 +95,7 @@ try:
     bn_hist = get_stock_data("^NSEBANK", "2d", "5m")
     vix_hist = get_stock_data("^INDIAVIX", "2d", "5m")
 except Exception:
-    st.error("Data source unavailable. Try again.")
+    st.error("Data source unavailable.")
     st.stop()
 
 if hist.empty or daily.empty or len(daily) < 2:
@@ -112,16 +103,9 @@ if hist.empty or daily.empty or len(daily) < 2:
     st.stop()
 
 hist.index = pd.to_datetime(hist.index)
-if hist.index.tz is not None:
-    hist.index = hist.index.tz_convert("Asia/Kolkata")
-else:
-    hist.index = hist.index.tz_localize("Asia/Kolkata")
-
+hist.index = hist.index.tz_convert("Asia/Kolkata") if hist.index.tz is not None else hist.index.tz_localize("Asia/Kolkata")
 daily.index = pd.to_datetime(daily.index)
-if daily.index.tz is not None:
-    daily.index = daily.index.tz_convert("Asia/Kolkata")
-else:
-    daily.index = daily.index.tz_localize("Asia/Kolkata")
+daily.index = daily.index.tz_convert("Asia/Kolkata") if daily.index.tz is not None else daily.index.tz_localize("Asia/Kolkata")
 
 today = pd.Timestamp.now(tz="Asia/Kolkata").date()
 session_date = today if (hist.index.date == today).any() else hist.index[-1].date()
@@ -133,12 +117,12 @@ if session_hist.empty:
 spot_price = float(session_hist["Close"].iloc[-1])
 _, nifty_5m = get_last_bar_change(session_hist)
 
-previous_sessions = daily[pd.Index(daily.index.date) < session_date]
-if previous_sessions.empty:
+prev_sessions = daily[pd.Index(daily.index.date) < session_date]
+if prev_sessions.empty:
     st.error("Previous session unavailable.")
     st.stop()
 
-prev_day = previous_sessions.iloc[-1]
+prev_day = prev_sessions.iloc[-1]
 pdh = float(prev_day["High"])
 pdl = float(prev_day["Low"])
 pdc = float(prev_day["Close"])
@@ -204,104 +188,88 @@ st.write(
 )
 
 st.markdown("---")
-st.subheader("Classic Pivot Points (R3 / R2 / R1 / P / S1 / S2 / S3)")
-P_classic = (pdh + pdl + pdc) / 3
-R1_c = 2 * P_classic - pdl
-S1_c = 2 * P_classic - pdh
-R2_c = P_classic + (R1_c - S1_c)
-S2_c = P_classic - (R1_c - S1_c)
-R3_c = pdh + 2 * (P_classic - pdl)
-S3_c = pdl - 2 * (pdh - P_classic)
+st.subheader("Classic Pivot Points")
+Pc = (pdh + pdl + pdc) / 3
+R1c = 2 * Pc - pdl
+S1c = 2 * Pc - pdh
+R2c = Pc + (R1c - S1c)
+S2c = Pc - (R1c - S1c)
+R3c = pdh + 2 * (Pc - pdl)
+S3c = pdl - 2 * (pdh - Pc)
 
-cp1, cp2, cp3 = st.columns(3)
-with cp1:
-    st.metric("R3", "Rs {:,.2f}".format(R3_c))
-    st.metric("R2", "Rs {:,.2f}".format(R2_c))
-    st.metric("R1", "Rs {:,.2f}".format(R1_c))
-with cp2:
-    st.metric("Pivot", "Rs {:,.2f}".format(P_classic))
-    st.metric("Spot", "Rs {:,.2f}".format(spot_price))
-with cp3:
-    st.metric("S1", "Rs {:,.2f}".format(S1_c))
-    st.metric("S2", "Rs {:,.2f}".format(S2_c))
-    st.metric("S3", "Rs {:,.2f}".format(S3_c))
+c1, c2, c3 = st.columns(3)
+c1.metric("R3", "Rs {:,.2f}".format(R3c))
+c1.metric("R2", "Rs {:,.2f}".format(R2c))
+c1.metric("R1", "Rs {:,.2f}".format(R1c))
+c2.metric("Pivot", "Rs {:,.2f}".format(Pc))
+c2.metric("Spot", "Rs {:,.2f}".format(spot_price))
+c3.metric("S1", "Rs {:,.2f}".format(S1c))
+c3.metric("S2", "Rs {:,.2f}".format(S2c))
+c3.metric("S3", "Rs {:,.2f}".format(S3c))
 
 st.markdown("---")
-st.subheader("Gap Up / Gap Down (3-min Candle)")
+st.subheader("Gap Up / Gap Down (3-min)")
 try:
-    hist_1m = get_stock_data("^NSEI", "5d", "1m")
-    if not hist_1m.empty:
-        hist_1m.index = pd.to_datetime(hist_1m.index)
-        if hist_1m.index.tz is not None:
-            hist_1m.index = hist_1m.index.tz_convert("Asia/Kolkata")
-        else:
-            hist_1m.index = hist_1m.index.tz_localize("Asia/Kolkata")
-
-        df3 = hist_1m.resample("3min").agg({
-            "Open": "first", "High": "max", "Low": "min",
-            "Close": "last", "Volume": "sum"
-        }).dropna()
-        df3["Date"] = df3.index.date
-        all_dates = sorted(df3["Date"].unique())
-
-        if len(all_dates) >= 2:
-            prev_c = df3[df3["Date"] == all_dates[-2]]
-            today_c = df3[df3["Date"] == all_dates[-1]]
-            if len(prev_c) > 0 and len(today_c) > 0:
-                X1h = float(prev_c.iloc[-1]["High"])
-                X2h = float(today_c.iloc[0]["High"])
-                X1l = float(prev_c.iloc[-1]["Low"])
-                X2l = float(today_c.iloc[0]["Low"])
+    h1m = get_stock_data("^NSEI", "5d", "1m")
+    if not h1m.empty:
+        h1m.index = pd.to_datetime(h1m.index)
+        h1m.index = h1m.index.tz_convert("Asia/Kolkata") if h1m.index.tz is not None else h1m.index.tz_localize("Asia/Kolkata")
+        d3 = h1m.resample("3min").agg({"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"}).dropna()
+        d3["D"] = d3.index.date
+        ad = sorted(d3["D"].unique())
+        if len(ad) >= 2:
+            pc = d3[d3["D"] == ad[-2]]
+            tc = d3[d3["D"] == ad[-1]]
+            if len(pc) > 0 and len(tc) > 0:
+                X1h = float(pc.iloc[-1]["High"])
+                X2h = float(tc.iloc[0]["High"])
+                X1l = float(pc.iloc[-1]["Low"])
+                X2l = float(tc.iloc[0]["Low"])
                 X3u = X2h - X1h
                 X4u = X3u / 2
                 X5u = X1h - X4u
                 X3d = X2l - X1l
                 X4d = X3d / 2
                 X5d = X2l + X4d
-                pc_val = float(prev_c["Close"].iloc[-1])
-                to_val = float(today_c["Open"].iloc[0])
-                gap_pts = to_val - pc_val
-                gap_pct = (gap_pts / pc_val * 100) if pc_val != 0 else 0
-
-                if gap_pts > 0:
-                    gtype = "GAP UP"
-                    gcol = "#00b300"
-                elif gap_pts < 0:
-                    gtype = "GAP DOWN"
-                    gcol = "#cc0000"
+                pval = float(pc["Close"].iloc[-1])
+                tval = float(tc["Open"].iloc[0])
+                gp = tval - pval
+                gpp = (gp / pval * 100) if pval != 0 else 0
+                if gp > 0:
+                    gt = "GAP UP"
+                    gc = "#00b300"
+                elif gp < 0:
+                    gt = "GAP DOWN"
+                    gc = "#cc0000"
                 else:
-                    gtype = "FLAT OPEN"
-                    gcol = "#666666"
-
+                    gt = "FLAT"
+                    gc = "#666666"
                 st.markdown(
-                    '<div style="padding:10px;background:#f8f9fa;border-radius:8px;border-left:4px solid ' + gcol + ';margin-bottom:10px;">'
-                    '<b style="color:' + gcol + ';font-size:16px;">' + gtype + '</b><br>'
-                    '<span style="font-size:13px;">Gap: <b>Rs {:,.2f} pts</b> ({:+.2f}%)</span><br>'.format(gap_pts, gap_pct)
-                    + '<span style="font-size:12px;color:#666;">Prev Close: Rs {:,.2f} | Today Open: Rs {:,.2f}</span>'.format(pc_val, to_val)
-                    + '</div>',
-                    unsafe_allow_html=True,
-                )
-
+                    '<div style="padding:10px;background:#f8f9fa;border-radius:8px;border-left:4px solid ' + gc + ';margin-bottom:10px;">'
+                    '<b style="color:' + gc + ';font-size:16px;">' + gt + '</b><br>'
+                    '<span>Gap: <b>Rs {:,.2f} pts</b> ({:+.2f}%)</span><br>'.format(gp, gpp)
+                    + '<span style="font-size:12px;color:#666;">Prev Close: Rs {:,.2f} | Open: Rs {:,.2f}</span></div>'.format(pval, tval),
+                    unsafe_allow_html=True)
                 g1, g2, g3 = st.columns(3)
                 with g1:
                     st.markdown("**Gap Up**")
-                    st.write("X1 High: Rs {:,.2f}".format(X1h))
-                    st.write("X2 High: Rs {:,.2f}".format(X2h))
+                    st.write("X1H: Rs {:,.2f}".format(X1h))
+                    st.write("X2H: Rs {:,.2f}".format(X2h))
                     st.write("X3: {:+,.2f}".format(X3u))
                     st.write("X4: {:+,.2f}".format(X4u))
                     st.success("X5: Rs {:,.2f}".format(X5u))
                 with g2:
                     st.markdown("**Gap Down**")
-                    st.write("X1 Low: Rs {:,.2f}".format(X1l))
-                    st.write("X2 Low: Rs {:,.2f}".format(X2l))
+                    st.write("X1L: Rs {:,.2f}".format(X1l))
+                    st.write("X2L: Rs {:,.2f}".format(X2l))
                     st.write("X3: {:+,.2f}".format(X3d))
                     st.write("X4: {:+,.2f}".format(X4d))
                     st.error("X5: Rs {:,.2f}".format(X5d))
                 with g3:
                     st.markdown("**Insight**")
-                    if gap_pts > 0:
+                    if gp > 0:
                         st.info("Reversal at Rs {:,.2f}".format(X5u))
-                    elif gap_pts < 0:
+                    elif gp < 0:
                         st.info("Upside at Rs {:,.2f}".format(X5d))
                     else:
                         st.info("No gap")
@@ -309,178 +277,191 @@ except Exception:
     st.caption("3-min data unavailable.")
 
 st.markdown("---")
-st.subheader("5-Year Historical Analysis")
+st.subheader("5-Year Historical")
 try:
     y5 = get_long_history("^NSEI")
     if not y5.empty:
         y5.index = pd.to_datetime(y5.index)
-        if y5.index.tz is not None:
-            y5.index = y5.index.tz_convert("Asia/Kolkata")
-        else:
-            y5.index = y5.index.tz_localize("Asia/Kolkata")
-
-        y5_close = y5["Close"]
-        yr_high = float(y5_close.max())
-        yr_low = float(y5_close.min())
-        yr_avg = float(y5_close.mean())
-        curr_v = float(y5_close.iloc[-1])
-
-        w52_high = float(y5_close.tail(252).max())
-        w52_low = float(y5_close.tail(252).min())
-
-        y1 = y5_close.tail(252)
-        y1_ret = ((curr_v - float(y1.iloc[0])) / float(y1.iloc[0])) * 100
-
+        y5.index = y5.index.tz_convert("Asia/Kolkata") if y5.index.tz is not None else y5.index.tz_localize("Asia/Kolkata")
+        yc = y5["Close"]
+        yh = float(yc.max())
+        yl = float(yc.min())
+        ya = float(yc.mean())
+        cv5 = float(yc.iloc[-1])
+        w52h = float(yc.tail(252).max())
+        w52l = float(yc.tail(252).min())
+        y1 = yc.tail(252)
+        y1r = ((cv5 - float(y1.iloc[0])) / float(y1.iloc[0])) * 100
         h1, h2, h3, h4 = st.columns(4)
-        h1.metric("5Y High", "Rs {:,.0f}".format(yr_high))
-        h2.metric("5Y Low", "Rs {:,.0f}".format(yr_low))
-        h3.metric("5Y Avg", "Rs {:,.0f}".format(yr_avg))
-        h4.metric("1Y Return", "{:+.2f}%".format(y1_ret))
-
+        h1.metric("5Y High", "Rs {:,.0f}".format(yh))
+        h2.metric("5Y Low", "Rs {:,.0f}".format(yl))
+        h3.metric("5Y Avg", "Rs {:,.0f}".format(ya))
+        h4.metric("1Y Ret", "{:+.2f}%".format(y1r))
         h5, h6 = st.columns(2)
-        h5.metric("52W High", "Rs {:,.0f}".format(w52_high))
-        h6.metric("52W Low", "Rs {:,.0f}".format(w52_low))
-
-        pos5 = ((curr_v - yr_low) / (yr_high - yr_low)) * 100 if yr_high != yr_low else 50
-        st.caption("Current position in 5Y range: {:.1f}%".format(pos5))
+        h5.metric("52W High", "Rs {:,.0f}".format(w52h))
+        h6.metric("52W Low", "Rs {:,.0f}".format(w52l))
+        p5 = ((cv5 - yl) / (yh - yl)) * 100 if yh != yl else 50
+        st.caption("Position in 5Y range: {:.1f}%".format(p5))
 except Exception:
     st.caption("5-year data unavailable.")
 
 st.markdown("---")
 st.subheader("Multi-Timeframe Trend")
 try:
-    tf_results = []
-    for tf_name, tf_period, tf_itv in [("1 Hour", "5d", "1h"), ("15 min", "5d", "15m"), ("5 min", "5d", "5m")]:
+    tfr = []
+    for tn, tp, ti in [("1H", "5d", "1h"), ("15m", "5d", "15m"), ("5m", "5d", "5m")]:
         try:
-            tf_df = get_stock_data("^NSEI", tf_period, tf_itv)
-            if not tf_df.empty and len(tf_df) >= 21:
-                tf_close = tf_df["Close"]
-                tf_ema9 = tf_close.ewm(span=9, adjust=False).mean().iloc[-1]
-                tf_ema21 = tf_close.ewm(span=21, adjust=False).mean().iloc[-1]
-                tf_trend = "Bullish" if tf_ema9 > tf_ema21 else "Bearish"
-                tf_last = float(tf_close.iloc[-1])
-                tf_results.append((tf_name, tf_last, tf_ema9, tf_ema21, tf_trend))
+            tdf = get_stock_data("^NSEI", tp, ti)
+            if not tdf.empty and len(tdf) >= 21:
+                tc = tdf["Close"]
+                e9 = tc.ewm(span=9, adjust=False).mean().iloc[-1]
+                e21 = tc.ewm(span=21, adjust=False).mean().iloc[-1]
+                tr = "Bullish" if e9 > e21 else "Bearish"
+                tl_ = float(tc.iloc[-1])
+                tfr.append((tn, tl_, e9, e21, tr))
         except Exception:
             pass
-
-    if tf_results:
-        for tfn, tfl, tfe9, tfe21, tftr in tf_results:
-            col = "#00b300" if tftr == "Bullish" else "#cc0000"
-            st.markdown(
-                '<div style="padding:6px 12px;margin-bottom:4px;background:#f8f9fa;border-left:4px solid ' + col + ';border-radius:6px;">'
-                '<b>' + tfn + '</b> | Last: Rs {:,.2f} | EMA9: Rs {:,.2f} | EMA21: Rs {:,.2f} | '.format(tfl, tfe9, tfe21)
-                + '<span style="color:' + col + ';font-weight:bold;">' + tftr + '</span></div>',
-                unsafe_allow_html=True,
-            )
+    for tfn, tfl, tfe9, tfe21, tftr in tfr:
+        col = "#00b300" if tftr == "Bullish" else "#cc0000"
+        st.markdown(
+            '<div style="padding:6px 12px;margin-bottom:4px;background:#f8f9fa;border-left:4px solid ' + col + ';border-radius:6px;">'
+            '<b>' + tfn + '</b> | Rs {:,.2f} | EMA9: Rs {:,.2f} | EMA21: Rs {:,.2f} | '.format(tfl, tfe9, tfe21)
+            + '<span style="color:' + col + ';font-weight:bold;">' + tftr + '</span></div>',
+            unsafe_allow_html=True)
 except Exception:
-    st.caption("Multi-timeframe data unavailable.")
+    st.caption("MTF data unavailable.")
 
 st.markdown("---")
-st.subheader("Market Structure Alignment")
-b_cond = [spot_price > TC, spot_price > vwap_val, ema9_val > ema21_val, rsi_val >= 55]
-s_cond = [spot_price < BC, spot_price < vwap_val, ema9_val < ema21_val, rsi_val <= 45]
-if all(b_cond):
+st.subheader("Market Structure")
+bc2 = [spot_price > TC, spot_price > vwap_val, ema9_val > ema21_val, rsi_val >= 55]
+sc2 = [spot_price < BC, spot_price < vwap_val, ema9_val < ema21_val, rsi_val <= 45]
+if all(bc2):
     st.success("Bullish Alignment.")
-elif all(s_cond):
+elif all(sc2):
     st.error("Bearish Alignment.")
 else:
     st.info("Mixed / Range-Bound.")
 
 st.markdown("---")
 st.subheader("Market Breadth - 18 Watchlist")
-b_stocks = get_breadth()
-if b_stocks:
+bst = get_breadth()
+if bst:
     b1, b2, b3 = st.columns(3)
-    b1.metric("Advances", sum(1 for s in b_stocks if s["chg"] > 0.05))
-    b2.metric("Declines", sum(1 for s in b_stocks if s["chg"] < -0.05))
-    b3.metric("Avg Change", "{:+.2f}%".format(sum(s["chg"] for s in b_stocks) / len(b_stocks)))
-    ss = sorted(b_stocks, key=lambda x: x["chg"], reverse=True)
+    b1.metric("Advances", sum(1 for s in bst if s["chg"] > 0.05))
+    b2.metric("Declines", sum(1 for s in bst if s["chg"] < -0.05))
+    b3.metric("Avg", "{:+.2f}%".format(sum(s["chg"] for s in bst) / len(bst)))
+    ss = sorted(bst, key=lambda x: x["chg"], reverse=True)
     gh = ""
     for s in ss[:5]:
-        gh = gh + '<div style="border-bottom:1px solid #eee;padding:3px;"><b>' + s["sym"] + '</b> Rs {:,.2f} <span style="color:#00b300;">({:+.2f}%)</span></div>'.format(s["ltp"], s["chg"])
+        gh += '<div style="border-bottom:1px solid #eee;padding:3px;"><b>' + s["sym"] + '</b> Rs {:,.2f} <span style="color:#00b300;">({:+.2f}%)</span></div>'.format(s["ltp"], s["chg"])
     lh = ""
     for s in ss[-5:][::-1]:
-        lh = lh + '<div style="border-bottom:1px solid #eee;padding:3px;"><b>' + s["sym"] + '</b> Rs {:,.2f} <span style="color:#cc0000;">({:+.2f}%)</span></div>'.format(s["ltp"], s["chg"])
-    st.markdown(
-        '<div style="display:flex;gap:10px;"><div style="flex:1;"><div style="font-weight:bold;color:#00b300;">Top 5 Gainers</div>' + gh + '</div><div style="flex:1;"><div style="font-weight:bold;color:#cc0000;">Top 5 Losers</div>' + lh + '</div></div>',
-        unsafe_allow_html=True,
-    )
+        lh += '<div style="border-bottom:1px solid #eee;padding:3px;"><b>' + s["sym"] + '</b> Rs {:,.2f} <span style="color:#cc0000;">({:+.2f}%)</span></div>'.format(s["ltp"], s["chg"])
+    st.markdown('<div style="display:flex;gap:10px;"><div style="flex:1;"><div style="font-weight:bold;color:#00b300;">Gainers</div>' + gh + '</div><div style="flex:1;"><div style="font-weight:bold;color:#cc0000;">Losers</div>' + lh + '</div></div>', unsafe_allow_html=True)
 
 st.markdown("---")
 st.subheader("NIFTY Chart & CPR")
 cdf = session_hist[["Close", "VWAP"]].copy()
 cdf = cdf.replace([np.inf, -np.inf], np.nan).dropna(subset=["Close"])
 cdf = cdf[cdf["Close"] > 0].copy()
-
 if not cdf.empty:
     fig = go.Figure()
     fig.add_hrect(y0=BC, y1=TC, fillcolor="LightSkyBlue", opacity=0.15, line_width=0, layer="below")
     fig.add_trace(go.Scatter(x=cdf.index, y=cdf["Close"], mode="lines", name="Price", line=dict(color="#0052cc", width=2)))
     fig.add_trace(go.Scatter(x=cdf.index, y=cdf["VWAP"], mode="lines", name="VWAP", line=dict(color="#ff9900", width=1.5, dash="dash")))
-    lv_list = [("TC", TC, "#66b3ff", "dot"), ("Pivot", PP, "#0066cc", "dash"), ("BC", BC, "#3399ff", "dot"), ("R1", R1, "#ff6666", "dot"), ("S1", S1, "#66cc66", "dot"), ("PDH", pdh, "#cc0000", "solid"), ("PDL", pdl, "#00b300", "solid")]
-    for nm, vl, cl, ds in lv_list:
-        fig.add_trace(go.Scatter(x=[cdf.index[0], cdf.index[-1]], y=[vl, vl], mode="lines", name=nm, line=dict(color=cl, width=1, dash=ds)))
-
+    lvls = [("TC", TC, "#66b3ff"), ("Pivot", PP, "#0066cc"), ("BC", BC, "#3399ff"), ("R1", R1, "#ff6666"), ("S1", S1, "#66cc66"), ("PDH", pdh, "#cc0000"), ("PDL", pdl, "#00b300")]
+    for nm, vl, cl in lvls:
+        fig.add_trace(go.Scatter(x=[cdf.index[0], cdf.index[-1]], y=[vl, vl], mode="lines", name=nm, line=dict(color=cl, width=1, dash="dot")))
     cvals = list(cdf["Close"]) + list(cdf["VWAP"].dropna()) + [pdh, pdl, R1, R2, S1, S2, PP, BC, TC]
-    valid = [float(v) for v in cvals if pd.notna(v) and np.isfinite(v) and abs(float(v) - spot_price) <= 500]
-    if valid:
-        lo = min(valid + [spot_price])
-        hi = max(valid + [spot_price])
+    vv = [float(v) for v in cvals if pd.notna(v) and np.isfinite(v) and abs(float(v) - spot_price) <= 500]
+    if vv:
+        lo = min(vv + [spot_price])
+        hi = max(vv + [spot_price])
         pad = max(75.0, (hi - lo) * 0.20)
-        y_min = lo - pad
-        y_max = hi + pad
-        y_min = min(y_min, spot_price - 200)
-        y_max = max(y_max, spot_price + 200)
+        ymn = min(lo - pad, spot_price - 200)
+        ymx = max(hi + pad, spot_price + 200)
     else:
-        y_min = spot_price - 200
-        y_max = spot_price + 200
-
-    fig.update_layout(
-        height=420,
-        margin=dict(l=10, r=10, t=25, b=25),
-        xaxis=dict(tickformat="%H:%M"),
-        yaxis=dict(range=[y_min, y_max], fixedrange=False),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-    )
+        ymn = spot_price - 200
+        ymx = spot_price + 200
+    fig.update_layout(height=420, margin=dict(l=10, r=10, t=25, b=25), xaxis=dict(tickformat="%H:%M"), yaxis=dict(range=[ymn, ymx], fixedrange=False), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     st.plotly_chart(fig, use_container_width=True)
 else:
     st.warning("Chart unavailable.")
 
 st.markdown("---")
-st.subheader("Buy/Sell Volume Per Candle (Estimated)")
+st.subheader("Buy/Sell Volume (Est.)")
 try:
-    vdf2 = session_hist[["Open", "High", "Low", "Close", "Volume"]].copy().dropna()
-    vdf2 = vdf2[vdf2["Volume"] > 0]
-    if len(vdf2) >= 5:
-        agg = vdf2.resample("15min").agg({
-            "Open": "first", "High": "max", "Low": "min",
-            "Close": "last", "Volume": "sum"
-        }).dropna()
-        if len(agg) >= 2:
-            bvol = []
-            svol = []
-            tlist = []
-            for idx, row in agg.iterrows():
-                tv = float(row["Volume"])
-                o = float(row["Open"])
-                c = float(row["Close"])
-                h = float(row["High"])
-                l = float(row["Low"])
+    vd = session_hist[["Open", "High", "Low", "Close", "Volume"]].dropna()
+    vd = vd[vd["Volume"] > 0]
+    if len(vd) >= 5:
+        ag = vd.resample("15min").agg({"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"}).dropna()
+        if len(ag) >= 2:
+            bv = []
+            sv = []
+            tl = []
+            for i, r in ag.iterrows():
+                tv = float(r["Volume"])
+                o = float(r["Open"])
+                c = float(r["Close"])
+                h = float(r["High"])
+                l = float(r["Low"])
                 rng = h - l if h > l else 1
                 if c >= o:
                     br = (c - o) / rng if rng > 0 else 0.5
-                    buy_r = 0.5 + (br * 0.4)
-                    if buy_r > 0.85:
-                        buy_r = 0.85
+                    brt = 0.5 + (br * 0.4)
+                    if brt > 0.85:
+                        brt = 0.85
                 else:
                     br = (o - c) / rng if rng > 0 else 0.5
-                    buy_r = 0.5 - (br * 0.4)
-                    if buy_r < 0.15:
-                        buy_r = 0.15
-                bvol.append(tv * buy_r)
-                svol.append(tv * (1 - buy_r))
-                tlist.append(idx.strftime("%H:%M"))
-
+                    brt = 0.5 - (br * 0.4)
+                    if brt < 0.15:
+                        brt = 0.15
+                bv.append(tv * brt)
+                sv.append(tv * (1 - brt))
+                tl.append(i.strftime("%H:%M"))
             fv = go.Figure()
-            fv.add_trace(go.Bar(x=tlist, y=bvol, name="Buy Vol (Est)", marker_color="#00b300"))
-            fv.add_trace(go.Bar(x=tlist, y=svol, name="Sell Vol
+            fv.add_trace(go.Bar(x=tl, y=bv, name="Buy", marker_color="#00b300"))
+            fv.add_trace(go.Bar(x=tl, y=sv, name="Sell", marker_color="#cc0000"))
+            fv.update_layout(barmode="group", height=320, xaxis_title="Time", yaxis_title="Volume")
+            st.plotly_chart(fv, use_container_width=True)
+            tb = sum(bv)
+            ts = sum(sv)
+            tot = tb + ts
+            if tot > 0:
+                bp = (tb / tot) * 100
+                st.write("Buy%: {:.1f}% | Sell%: {:.1f}%".format(bp, 100 - bp))
+                if bp > 60:
+                    st.success("Buyers dominate")
+                elif bp < 40:
+                    st.error("Sellers dominate")
+                else:
+                    st.info("Balanced")
+    else:
+        st.caption("No volume data")
+except Exception:
+    st.caption("Volume chart unavailable.")
+
+st.markdown("---")
+st.subheader("Pattern Visual Chart")
+try:
+    vdf = session_hist[["High", "Low", "Close"]].dropna()
+    if len(vdf) >= 20:
+        vhi = vdf["High"].values
+        vlo = vdf["Low"].values
+        vcl = vdf["Close"].values
+        vt = vdf.index
+        shi = []
+        shv = []
+        for i in range(2, len(vhi) - 2):
+            if vhi[i] > vhi[i-1] and vhi[i] > vhi[i-2] and vhi[i] > vhi[i+1] and vhi[i] > vhi[i+2]:
+                shi.append(i)
+                shv.append(float(vhi[i]))
+        sli = []
+        slv = []
+        for i in range(2, len(vlo) - 2):
+            if vlo[i] < vlo[i-1] and vlo[i] < vlo[i-2] and vlo[i] < vlo[i+1] and vlo[i] < vlo[i+2]:
+                sli.append(i)
+                slv.append(float(vlo[i]))
+        vf = go.Figure()
+        vf.add_trace(go.Scatter(x=vt, y=vcl, mode="lines", name="Price", line=dict(color="#0052cc", width=2.5)))
+        if s
