@@ -39,14 +39,18 @@ def get_stock_data(sym, p, itv=None):
 
 @st.cache_data(ttl=300)
 def get_breadth():
-    syms = ["ADANIENT.NS", "ASIANPAINT.NS", "AXISBANK.NS", "BAJFINANCE.NS",
-            "BHARTIARTL.NS", "HDFCBANK.NS", "ICICIBANK.NS", "INFY.NS",
-            "ITC.NS", "KOTAKBANK.NS", "LT.NS", "M&M.NS", "MARUTI.NS",
-            "RELIANCE.NS", "SBIN.NS", "TCS.NS", "TATAMOTORS.NS", "TITAN.NS"]
+    syms = [
+        "ADANIENT.NS", "ASIANPAINT.NS", "AXISBANK.NS", "BAJFINANCE.NS",
+        "BHARTIARTL.NS", "HDFCBANK.NS", "ICICIBANK.NS", "INFY.NS",
+        "ITC.NS", "KOTAKBANK.NS", "LT.NS", "M&M.NS", "MARUTI.NS",
+        "RELIANCE.NS", "SBIN.NS", "TCS.NS", "TATAMOTORS.NS", "TITAN.NS"
+    ]
     out = []
     try:
-        df = yf.download(syms, period="2d", interval="1d",
-                         group_by="ticker", progress=False, threads=True)
+        df = yf.download(
+            syms, period="2d", interval="1d",
+            group_by="ticker", progress=False, threads=True
+        )
         for s in syms:
             try:
                 h = df[s].dropna()
@@ -54,9 +58,11 @@ def get_breadth():
                     c = float(h["Close"].iloc[-1])
                     p = float(h["Close"].iloc[-2])
                     if p > 0:
-                        out.append({"sym": s.replace(".NS", ""),
-                                    "ltp": round(c, 2),
-                                    "chg": round(((c - p) / p) * 100, 2)})
+                        out.append({
+                            "sym": s.replace(".NS", ""),
+                            "ltp": round(c, 2),
+                            "chg": round(((c - p) / p) * 100, 2)
+                        })
             except Exception:
                 pass
     except Exception:
@@ -88,18 +94,17 @@ def get_news():
     return out[:6] if out else ["வர்த்தக செய்திகள் தற்காலிகமாக கிடைக்கவில்லை."]
 
 
-# ===== DATA FETCH (isolated try) =====
 try:
     hist = get_stock_data("^NSEI", "5d", "5m")
     daily = get_stock_data("^NSEI", "5d", "1d")
     bn_hist = get_stock_data("^NSEBANK", "2d", "5m")
     vix_hist = get_stock_data("^INDIAVIX", "2d", "5m")
 except Exception:
-    st.error("Market data source unavailable. Try again in a moment.")
+    st.error("சந்தை தரவு சேவையகம் தற்காலிகமாக கிடைக்கவில்லை. சிறிது நேரம் கழித்து மீண்டும் முயற்சிக்கவும்.")
     st.stop()
 
 if hist.empty or daily.empty or len(daily) < 2:
-    st.error("Nifty data unavailable.")
+    st.error("Nifty தரவுகள் கிடைக்கவில்லை.")
     st.stop()
 
 hist.index = pd.to_datetime(hist.index)
@@ -118,7 +123,7 @@ today = pd.Timestamp.now(tz="Asia/Kolkata").date()
 session_date = today if (hist.index.date == today).any() else hist.index[-1].date()
 session_hist = hist[hist.index.date == session_date].copy()
 if session_hist.empty:
-    st.error("Session data unavailable.")
+    st.error("இன்றைய அமர்வு தரவு கிடைக்கவில்லை.")
     st.stop()
 
 spot_price = float(session_hist["Close"].iloc[-1])
@@ -126,7 +131,7 @@ _, nifty_5m = get_last_bar_change(session_hist)
 
 previous_sessions = daily[pd.Index(daily.index.date) < session_date]
 if previous_sessions.empty:
-    st.error("Previous session data unavailable.")
+    st.error("முந்தைய நாளின் நிறைவுற்ற அமர்வு தரவு கிடைக்கவில்லை.")
     st.stop()
 
 prev_day = previous_sessions.iloc[-1]
@@ -193,7 +198,7 @@ st.write(
     '<b style="font-size:15px;">Rs {:,.2f}</b></div></div></div>'.format(pdl),
     unsafe_allow_html=True,
 )
-st.caption("Nifty, Bank Nifty, and VIX delta values show the latest 5-minute bar change versus the prior bar.")
+st.caption("Nifty, Bank Nifty மற்றும் VIX ஆகியவை முந்தைய 5-நிமிட பார் உடனான மாற்றத்தைக் காட்டுகின்றன.")
 
 st.markdown("---")
 st.subheader("Market Structure Alignment")
@@ -204,12 +209,12 @@ if all(b_cond):
 elif all(s_cond):
     st.error("Bearish Alignment: Price < BC & VWAP; EMA 9 < 21; RSI < 45.")
 else:
-    st.info("Mixed / Range-Bound: No clear technical direction.")
+    st.info("Mixed / Range-Bound: தெளிவான தொழில்நுட்ப திசை அமைப்பு இல்லை.")
 st.caption("Levels: BC Rs {:,.2f} | TC Rs {:,.2f} | R1 Rs {:,.2f} | S1 Rs {:,.2f}".format(BC, TC, R1, S1))
 
 st.markdown("---")
 st.subheader("Market Breadth - 18 Watchlist")
-st.caption("Selected Nifty heavyweight watchlist; not the full Nifty 50 constituent set.")
+st.caption("தேர்ந்தெடுக்கப்பட்ட முன்னணி Nifty 50 பங்குகள் மட்டுமே.")
 b_stocks = get_breadth()
 if b_stocks:
     b1, b2, b3 = st.columns(3)
@@ -239,27 +244,34 @@ if not cdf.empty:
         fig.add_trace(go.Scatter(x=[cdf.index[0], cdf.index[-1]], y=[vl, vl], mode="lines", name=nm, line=dict(color=cl, width=1, dash=ds)))
 
     chart_vals = list(cdf["Close"].dropna()) + list(cdf["VWAP"].dropna()) + [pdh, pdl, R1, R2, S1, S2, PP, BC, TC]
-    valid_vals = [float(v) for v in chart_vals if pd.notna(v) and np.isfinite(v) and abs(float(v) - spot_price) <= 400]
+    valid_vals = []
+    for v in chart_vals:
+        try:
+            fv = float(v)
+            if np.isfinite(fv) and abs(fv - spot_price) <= 500:
+                valid_vals.append(fv)
+        except Exception:
+            continue
+
     if valid_vals:
-        low_val = min(valid_vals)
-        high_val = max(valid_vals)
-        pad = max(50.0, (high_val - low_val) * 0.15)
+        low_val = min(valid_vals + [spot_price])
+        high_val = max(valid_vals + [spot_price])
+        pad = max(75.0, (high_val - low_val) * 0.20)
         y_min = low_val - pad
         y_max = high_val + pad
-        if y_max - y_min < 100:
-            y_min = spot_price - 50
-            y_max = spot_price + 50
+        y_min = min(y_min, spot_price - 200)
+        y_max = max(y_max, spot_price + 200)
     else:
-        y_min = spot_price - 250
-        y_max = spot_price + 250
+        y_min = spot_price - 200
+        y_max = spot_price + 200
 
-    fig.update_layout(height=400, margin=dict(l=10, r=10, t=25, b=25),
+    fig.update_layout(height=420, margin=dict(l=10, r=10, t=25, b=25),
                       xaxis=dict(tickformat="%H:%M"),
-                      yaxis=dict(range=[y_min, y_max]),
+                      yaxis=dict(range=[y_min, y_max], fixedrange=False),
                       legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 else:
-    st.warning("Chart data unavailable.")
+    st.warning("Chart தரவுகள் கிடைக்கவில்லை.")
 
 st.markdown("---")
 st.subheader("Chart Pattern Detection")
@@ -311,18 +323,23 @@ if patterns:
             '<span style="font-size:13px;color:#555;">' + desc + '</span></div>',
             unsafe_allow_html=True)
 else:
-    st.caption("No clear short-term chart pattern detected.")
+    st.caption("தெளிவான Chart pattern எதுவும் கண்டறியப்படவில்லை.")
 
 st.caption("Rule-based patterns; confirm with session volume and candle closes.")
 
 st.markdown("---")
 st.subheader("Technical Indicators (Intraday)")
 i1, i2, i3, i4 = st.columns(4)
-i1.metric("EMA 9", "Rs {:,.2f}".format(ema9_val), "Above" if spot_price > ema9_val else "Below")
-i2.metric("EMA 21", "Rs {:,.2f}".format(ema21_val), "Above" if spot_price > ema21_val else "Below")
-i3.metric("VWAP", "Rs {:,.2f}".format(vwap_val), "Above" if spot_price > vwap_val else "Below")
-rsi_st = "Overbought" if rsi_val >= 70 else ("Oversold" if rsi_val <= 30 else "Neutral")
-i4.metric("RSI (Wilder)", "{:.2f}".format(rsi_val), rsi_st)
+i1.metric("EMA 9", "Rs {:,.2f}".format(ema9_val))
+i2.metric("EMA 21", "Rs {:,.2f}".format(ema21_val))
+i3.metric("VWAP", "Rs {:,.2f}".format(vwap_val))
+if rsi_val >= 70:
+    rsi_label = "Overbought"
+elif rsi_val <= 30:
+    rsi_label = "Oversold"
+else:
+    rsi_label = "Neutral"
+i4.metric("RSI (Wilder)", "{:.2f}".format(rsi_val), rsi_label)
 
 st.markdown("---")
 st.subheader("வர்த்தக செய்திகள்")
