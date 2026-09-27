@@ -53,10 +53,8 @@ def get_breadth():
     ]
     out = []
     try:
-        df = yf.download(
-            syms, period="2d", interval="1d",
-            group_by="ticker", progress=False, threads=True
-        )
+        df = yf.download(syms, period="2d", interval="1d",
+                         group_by="ticker", progress=False, threads=True)
         for s in syms:
             try:
                 h = df[s].dropna()
@@ -397,14 +395,12 @@ if b_stocks:
     b2.metric("Declines", sum(1 for s in b_stocks if s["chg"] < -0.05))
     b3.metric("Avg Change", "{:+.2f}%".format(sum(s["chg"] for s in b_stocks) / len(b_stocks)))
     ss = sorted(b_stocks, key=lambda x: x["chg"], reverse=True)
-    gh = "".join([
-        '<div style="border-bottom:1px solid #eee;padding:3px;"><b>' + s["sym"] + '</b> Rs {:,.2f} <span style="color:#00b300;">({:+.2f}%)</span></div>'.format(s["ltp"], s["chg"])
-        for s in ss[:5]
-    ])
-    lh = "".join([
-        '<div style="border-bottom:1px solid #eee;padding:3px;"><b>' + s["sym"] + '</b> Rs {:,.2f} <span style="color:#cc0000;">({:+.2f}%)</span></div>'.format(s["ltp"], s["chg"])
-        for s in ss[-5:][::-1]
-    ])
+    gh = ""
+    for s in ss[:5]:
+        gh = gh + '<div style="border-bottom:1px solid #eee;padding:3px;"><b>' + s["sym"] + '</b> Rs {:,.2f} <span style="color:#00b300;">({:+.2f}%)</span></div>'.format(s["ltp"], s["chg"])
+    lh = ""
+    for s in ss[-5:][::-1]:
+        lh = lh + '<div style="border-bottom:1px solid #eee;padding:3px;"><b>' + s["sym"] + '</b> Rs {:,.2f} <span style="color:#cc0000;">({:+.2f}%)</span></div>'.format(s["ltp"], s["chg"])
     st.markdown(
         '<div style="display:flex;gap:10px;"><div style="flex:1;"><div style="font-weight:bold;color:#00b300;">Top 5 Gainers</div>' + gh + '</div><div style="flex:1;"><div style="font-weight:bold;color:#cc0000;">Top 5 Losers</div>' + lh + '</div></div>',
         unsafe_allow_html=True,
@@ -421,15 +417,8 @@ if not cdf.empty:
     fig.add_hrect(y0=BC, y1=TC, fillcolor="LightSkyBlue", opacity=0.15, line_width=0, layer="below")
     fig.add_trace(go.Scatter(x=cdf.index, y=cdf["Close"], mode="lines", name="Price", line=dict(color="#0052cc", width=2)))
     fig.add_trace(go.Scatter(x=cdf.index, y=cdf["VWAP"], mode="lines", name="VWAP", line=dict(color="#ff9900", width=1.5, dash="dash")))
-    for nm, vl, cl, ds in [
-        ("TC", TC, "#66b3ff", "dot"),
-        ("Pivot", PP, "#0066cc", "dash"),
-        ("BC", BC, "#3399ff", "dot"),
-        ("R1", R1, "#ff6666", "dot"),
-        ("S1", S1, "#66cc66", "dot"),
-        ("PDH", pdh, "#cc0000", "solid"),
-        ("PDL", pdl, "#00b300", "solid"),
-    ]:
+    lv_list = [("TC", TC, "#66b3ff", "dot"), ("Pivot", PP, "#0066cc", "dash"), ("BC", BC, "#3399ff", "dot"), ("R1", R1, "#ff6666", "dot"), ("S1", S1, "#66cc66", "dot"), ("PDH", pdh, "#cc0000", "solid"), ("PDL", pdl, "#00b300", "solid")]
+    for nm, vl, cl, ds in lv_list:
         fig.add_trace(go.Scatter(x=[cdf.index[0], cdf.index[-1]], y=[vl, vl], mode="lines", name=nm, line=dict(color=cl, width=1, dash=ds)))
 
     cvals = list(cdf["Close"]) + list(cdf["VWAP"].dropna()) + [pdh, pdl, R1, R2, S1, S2, PP, BC, TC]
@@ -438,11 +427,13 @@ if not cdf.empty:
         lo = min(valid + [spot_price])
         hi = max(valid + [spot_price])
         pad = max(75.0, (hi - lo) * 0.20)
-        y_min, y_max = lo - pad, hi + pad
+        y_min = lo - pad
+        y_max = hi + pad
         y_min = min(y_min, spot_price - 200)
         y_max = max(y_max, spot_price + 200)
     else:
-        y_min, y_max = spot_price - 200, spot_price + 200
+        y_min = spot_price - 200
+        y_max = spot_price + 200
 
     fig.update_layout(
         height=420,
@@ -466,7 +457,9 @@ try:
             "Close": "last", "Volume": "sum"
         }).dropna()
         if len(agg) >= 2:
-            bvol, svol, tlist = [], [], []
+            bvol = []
+            svol = []
+            tlist = []
             for idx, row in agg.iterrows():
                 tv = float(row["Volume"])
                 o = float(row["Open"])
@@ -490,4 +483,4 @@ try:
 
             fv = go.Figure()
             fv.add_trace(go.Bar(x=tlist, y=bvol, name="Buy Vol (Est)", marker_color="#00b300"))
-            fv.add_trace(go.Bar(x=tlist
+            fv.add_trace(go.Bar(x=tlist, y=svol, name="Sell Vol
