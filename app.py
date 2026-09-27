@@ -45,14 +45,18 @@ def get_long_history(sym):
 
 @st.cache_data(ttl=300)
 def get_breadth():
-    syms = ["ADANIENT.NS", "ASIANPAINT.NS", "AXISBANK.NS", "BAJFINANCE.NS",
-            "BHARTIARTL.NS", "HDFCBANK.NS", "ICICIBANK.NS", "INFY.NS",
-            "ITC.NS", "KOTAKBANK.NS", "LT.NS", "M&M.NS", "MARUTI.NS",
-            "RELIANCE.NS", "SBIN.NS", "TCS.NS", "TATAMOTORS.NS", "TITAN.NS"]
+    syms = [
+        "ADANIENT.NS", "ASIANPAINT.NS", "AXISBANK.NS", "BAJFINANCE.NS",
+        "BHARTIARTL.NS", "HDFCBANK.NS", "ICICIBANK.NS", "INFY.NS",
+        "ITC.NS", "KOTAKBANK.NS", "LT.NS", "M&M.NS", "MARUTI.NS",
+        "RELIANCE.NS", "SBIN.NS", "TCS.NS", "TATAMOTORS.NS", "TITAN.NS"
+    ]
     out = []
     try:
-        df = yf.download(syms, period="2d", interval="1d",
-                         group_by="ticker", progress=False, threads=True)
+        df = yf.download(
+            syms, period="2d", interval="1d",
+            group_by="ticker", progress=False, threads=True
+        )
         for s in syms:
             try:
                 h = df[s].dropna()
@@ -60,9 +64,11 @@ def get_breadth():
                     c = float(h["Close"].iloc[-1])
                     p = float(h["Close"].iloc[-2])
                     if p > 0:
-                        out.append({"sym": s.replace(".NS", ""),
-                                    "ltp": round(c, 2),
-                                    "chg": round(((c - p) / p) * 100, 2)})
+                        out.append({
+                            "sym": s.replace(".NS", ""),
+                            "ltp": round(c, 2),
+                            "chg": round(((c - p) / p) * 100, 2)
+                        })
             except Exception:
                 pass
     except Exception:
@@ -235,7 +241,8 @@ try:
 
         df3 = hist_1m.resample("3min").agg({
             "Open": "first", "High": "max", "Low": "min",
-            "Close": "last", "Volume": "sum"}).dropna()
+            "Close": "last", "Volume": "sum"
+        }).dropna()
         df3["Date"] = df3.index.date
         all_dates = sorted(df3["Date"].unique())
 
@@ -273,7 +280,9 @@ try:
                     '<b style="color:' + gcol + ';font-size:16px;">' + gtype + '</b><br>'
                     '<span style="font-size:13px;">Gap: <b>Rs {:,.2f} pts</b> ({:+.2f}%)</span><br>'.format(gap_pts, gap_pct)
                     + '<span style="font-size:12px;color:#666;">Prev Close: Rs {:,.2f} | Today Open: Rs {:,.2f}</span>'.format(pc_val, to_val)
-                    + '</div>', unsafe_allow_html=True)
+                    + '</div>',
+                    unsafe_allow_html=True,
+                )
 
                 g1, g2, g3 = st.columns(3)
                 with g1:
@@ -363,7 +372,8 @@ try:
                 '<div style="padding:6px 12px;margin-bottom:4px;background:#f8f9fa;border-left:4px solid ' + col + ';border-radius:6px;">'
                 '<b>' + tfn + '</b> | Last: Rs {:,.2f} | EMA9: Rs {:,.2f} | EMA21: Rs {:,.2f} | '.format(tfl, tfe9, tfe21)
                 + '<span style="color:' + col + ';font-weight:bold;">' + tftr + '</span></div>',
-                unsafe_allow_html=True)
+                unsafe_allow_html=True,
+            )
 except Exception:
     st.caption("Multi-timeframe data unavailable.")
 
@@ -387,9 +397,18 @@ if b_stocks:
     b2.metric("Declines", sum(1 for s in b_stocks if s["chg"] < -0.05))
     b3.metric("Avg Change", "{:+.2f}%".format(sum(s["chg"] for s in b_stocks) / len(b_stocks)))
     ss = sorted(b_stocks, key=lambda x: x["chg"], reverse=True)
-    gh = "".join(['<div style="border-bottom:1px solid #eee;padding:3px;"><b>' + s["sym"] + '</b> Rs {:,.2f} <span style="color:#00b300;">({:+.2f}%)</span></div>'.format(s["ltp"], s["chg"]) for s in ss[:5]])
-    lh = "".join(['<div style="border-bottom:1px solid #eee;padding:3px;"><b>' + s["sym"] + '</b> Rs {:,.2f} <span style="color:#cc0000;">({:+.2f}%)</span></div>'.format(s["ltp"], s["chg"]) for s in ss[-5:][::-1]])
-    st.markdown('<div style="display:flex;gap:10px;"><div style="flex:1;"><div style="font-weight:bold;color:#00b300;">Top 5 Gainers</div>' + gh + '</div><div style="flex:1;"><div style="font-weight:bold;color:#cc0000;">Top 5 Losers</div>' + lh + '</div></div>', unsafe_allow_html=True)
+    gh = "".join([
+        '<div style="border-bottom:1px solid #eee;padding:3px;"><b>' + s["sym"] + '</b> Rs {:,.2f} <span style="color:#00b300;">({:+.2f}%)</span></div>'.format(s["ltp"], s["chg"])
+        for s in ss[:5]
+    ])
+    lh = "".join([
+        '<div style="border-bottom:1px solid #eee;padding:3px;"><b>' + s["sym"] + '</b> Rs {:,.2f} <span style="color:#cc0000;">({:+.2f}%)</span></div>'.format(s["ltp"], s["chg"])
+        for s in ss[-5:][::-1]
+    ])
+    st.markdown(
+        '<div style="display:flex;gap:10px;"><div style="flex:1;"><div style="font-weight:bold;color:#00b300;">Top 5 Gainers</div>' + gh + '</div><div style="flex:1;"><div style="font-weight:bold;color:#cc0000;">Top 5 Losers</div>' + lh + '</div></div>',
+        unsafe_allow_html=True,
+    )
 
 st.markdown("---")
 st.subheader("NIFTY Chart & CPR")
@@ -402,7 +421,15 @@ if not cdf.empty:
     fig.add_hrect(y0=BC, y1=TC, fillcolor="LightSkyBlue", opacity=0.15, line_width=0, layer="below")
     fig.add_trace(go.Scatter(x=cdf.index, y=cdf["Close"], mode="lines", name="Price", line=dict(color="#0052cc", width=2)))
     fig.add_trace(go.Scatter(x=cdf.index, y=cdf["VWAP"], mode="lines", name="VWAP", line=dict(color="#ff9900", width=1.5, dash="dash")))
-    for nm, vl, cl, ds in [("TC", TC, "#66b3ff", "dot"), ("Pivot", PP, "#0066cc", "dash"), ("BC", BC, "#3399ff", "dot"), ("R1", R1, "#ff6666", "dot"), ("S1", S1, "#66cc66", "dot"), ("PDH", pdh, "#cc0000", "solid"), ("PDL", pdl, "#00b300", "solid")]:
+    for nm, vl, cl, ds in [
+        ("TC", TC, "#66b3ff", "dot"),
+        ("Pivot", PP, "#0066cc", "dash"),
+        ("BC", BC, "#3399ff", "dot"),
+        ("R1", R1, "#ff6666", "dot"),
+        ("S1", S1, "#66cc66", "dot"),
+        ("PDH", pdh, "#cc0000", "solid"),
+        ("PDL", pdl, "#00b300", "solid"),
+    ]:
         fig.add_trace(go.Scatter(x=[cdf.index[0], cdf.index[-1]], y=[vl, vl], mode="lines", name=nm, line=dict(color=cl, width=1, dash=ds)))
 
     cvals = list(cdf["Close"]) + list(cdf["VWAP"].dropna()) + [pdh, pdl, R1, R2, S1, S2, PP, BC, TC]
@@ -417,26 +444,27 @@ if not cdf.empty:
     else:
         y_min, y_max = spot_price - 200, spot_price + 200
 
-    fig.update_layout(height=420, margin=dict(l=10, r=10, t=25, b=25),
-                      xaxis=dict(tickformat="%H:%M"),
-                      yaxis=dict(range=[y_min, y_max], fixedrange=False),
-                      legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+    fig.update_layout(
+        height=420,
+        margin=dict(l=10, r=10, t=25, b=25),
+        xaxis=dict(tickformat="%H:%M"),
+        yaxis=dict(range=[y_min, y_max], fixedrange=False),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
     st.plotly_chart(fig, use_container_width=True)
 else:
     st.warning("Chart unavailable.")
 
 st.markdown("---")
 st.subheader("Buy/Sell Volume Per Candle (Estimated)")
-
 try:
     vdf2 = session_hist[["Open", "High", "Low", "Close", "Volume"]].copy().dropna()
     vdf2 = vdf2[vdf2["Volume"] > 0]
-
     if len(vdf2) >= 5:
         agg = vdf2.resample("15min").agg({
             "Open": "first", "High": "max", "Low": "min",
-            "Close": "last", "Volume": "sum"}).dropna()
-
+            "Close": "last", "Volume": "sum"
+        }).dropna()
         if len(agg) >= 2:
             bvol, svol, tlist = [], [], []
             for idx, row in agg.iterrows():
@@ -462,9 +490,4 @@ try:
 
             fv = go.Figure()
             fv.add_trace(go.Bar(x=tlist, y=bvol, name="Buy Vol (Est)", marker_color="#00b300"))
-            fv.add_trace(go.Bar(x=tlist, y=svol, name="Sell Vol (Est)", marker_color="#cc0000"))
-            fv.update_layout(
-                barmode="group",
-                height=350,
-                margin=dict(l=10, r=10, t=30, b=30),
-                xaxis_tit
+            fv.add_trace(go.Bar(x=tlist
