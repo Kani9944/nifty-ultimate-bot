@@ -4,26 +4,14 @@ import pandas as pd
 import plotly.graph_objects as go
 import requests
 import streamlit as st
+from streamlit.runtime.scriptrunner import StopException
 from streamlit_autorefresh import st_autorefresh
 import yfinance as yf
 
+# App Config
 st.set_page_config(page_title="Nifty Smart Monitor", layout="wide")
-st_autorefresh(interval=30 * 1000, key="refresh")
+st_autorefresh(interval=60 * 1000, key="refresh")
 st.title("🦅 NIFTY 50 - Smart Money & Market Monitor")
-
-
-def format_lakhs(v):
-  try:
-    val = float(v)
-    if val >= 10000000:
-      return f"{val/10000000:.2f} Cr"
-    if val >= 100000:
-      return f"{val/100000:.2f} L"
-    if val >= 1000:
-      return f"{val/1000:.1f} K"
-    return f"{val:,.0f}"
-  except:
-    return str(v)
 
 
 def get_last_bar_change(d):
@@ -33,24 +21,25 @@ def get_last_bar_change(d):
   return c, (((c - p) / p) * 100 if p != 0 else None)
 
 
+# Wilder's RSI (TradingView / Broker Standard)
 def calculate_rsi(close, w=14):
   d = close.diff()
   g, l = d.clip(lower=0), -d.clip(upper=0)
-  ag = g.rolling(w, min_periods=w).mean()
-  al = l.rolling(w, min_periods=w).mean()
-  rsi = 100.0 - (100.0 / (1.0 + (ag / al)))
-  rsi = rsi.mask((al == 0) & (ag > 0), 100.0)
-  rsi = rsi.mask((ag == 0) & (al > 0), 0.0)
-  return rsi.mask((ag == 0) & (al == 0), 50.0)
+  ag = g.ewm(alpha=1 / w, adjust=False, min_periods=w).mean()
+  al = l.ewm(alpha=1 / w, adjust=False, min_periods=w).mean()
+  rs = ag / al
+  rsi = 100.0 - (100.0 / (1.0 + rs))
+  return rsi.mask(al == 0, 100.0).mask((ag == 0) & (al == 0), 50.0)
 
 
-@st.cache_data(ttl=25)
+@st.cache_data(ttl=60)
 def get_stock_data(sym, p, itv=None):
   t = yf.Ticker(sym)
   return t.history(period=p, interval=itv) if itv else t.history(period=p)
 
 
-@st.cache_data(ttl=120)
+# Batched Download for 18 Stocks (Parallel & Fast)
+@st.cache_data(ttl=300)
 def get_breadth():
   syms = [
       "ADANIENT.NS",
@@ -72,21 +61,32 @@ def get_breadth():
       "TATAMOTORS.NS",
       "TITAN.NS",
   ]
-  res = []
-  for s in syms:
-    try:
-      h = yf.Ticker(s).history(period="2d", interval="1d")
-      if len(h) >= 2:
-        c, p = float(h["Close"].iloc[-1]), float(h["Close"].iloc[-2])
-        if p > 0:
-          res.append({
-              "sym": s.replace(".NS", ""),
-              "ltp": round(c, 2),
-              "chg": round(((c - p) / p) * 100, 2),
-          })
-    except:
-      pass
-  return res
+  out = []
+  try:
+    df = yf.download(
+        syms,
+        period="2d",
+        interval="1d",
+        group_by="ticker",
+        progress=False,
+        threads=True,
+    )
+    for s in syms:
+      try:
+        h = df[s].dropna()
+        if len(h) >= 2:
+          c, p = float(h["Close"].iloc[-1]), float(h["Close"].iloc[-2])
+          if p > 0:
+            out.append({
+                "sym": s.replace(".NS", ""),
+                "ltp": round(c, 2),
+                "chg": round(((c - p) / p) * 100, 2),
+            })
+      except Exception as e:
+        print(f"Error parsing {s}: {e}")
+  except Exception as e:
+    print(f"Batch breadth failed: {e}")
+  return out
 
 
 @st.cache_data(ttl=300)
@@ -98,7 +98,7 @@ def get_news():
   out = []
   for u in feeds:
     try:
-      r = requests.get(u, headers={"User-Agent": "Mozilla/5.0"}, timeout=2)
+      r = requests.get(u, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
       if r.status_code == 200:
         f = feedparser.parse(r.content)
         for e in f.entries[:3]:
@@ -107,8 +107,8 @@ def get_news():
             out.append(f"🌐 [{t}]({l})" if l else f"🌐 {t}")
         if len(out) >= 6:
           break
-    except:
-      continue
+    except Exception as e:
+      print(f"News fetch error from {u}: {e}")
   return out[:6] if out else ["🌐 வர்த்தகச் செய்திகள் தற்காலிகமாக கிடைக்கவில்லை."]
 
 
@@ -128,6 +128,7 @@ try:
       if hist.index.tz is not None
       else hist.index.tz_localize("Asia/Kolkata")
   )
+
   daily.index = pd.to_datetime(daily.index)
   daily.index = (
       daily.index.tz_convert("Asia/Kolkata")
@@ -177,9 +178,15 @@ try:
 
   bn_p, bn_5m = get_last_bar_change(bn_hist)
   vix_v, vix_5m = get_last_bar_change(vix_hist)
-  ema9_val = float(hist["Close"].ewm(span=9, adjust=False).mean().iloc[-1])
-  ema21_val = float(hist["Close"].ewm(span=21, adjust=False).mean().iloc[-1])
-  rsi_series = calculate_rsi(hist["Close"], 14)
+
+  # Session-Scoped Indicators (Avoid Overnight Distortion)
+  ema9_val = float(
+      session_hist["Close"].ewm(span=9, adjust=False).mean().iloc[-1]
+  )
+  ema21_val = float(
+      session_hist["Close"].ewm(span=21, adjust=False).mean().iloc[-1]
+  )
+  rsi_series = calculate_rsi(session_hist["Close"], 14)
   rsi_val = (
       float(rsi_series.iloc[-1]) if pd.notna(rsi_series.iloc[-1]) else 50.0
   )
@@ -189,22 +196,26 @@ try:
       else spot_price
   )
 
+  # Explicit Formats & Distinct Names
   nd_s = f"{nifty_5m:+.2f}%" if nifty_5m is not None else "N/A"
   bd_s = f"{bn_5m:+.2f}%" if bn_5m is not None else "N/A"
   vd_s = f"{vix_5m:+.2f}%" if vix_5m is not None else "N/A"
-  nc = "#00b300" if (nifty_5m is not None and nifty_5m >= 0) else "#cc0000"
-  bc = "#00b300" if (bn_5m is not None and bn_5m >= 0) else "#cc0000"
-  vc = "#cc0000" if (vix_5m is not None and vix_5m >= 0) else "#00b300"
+  nifty_col = (
+      "#00b300" if (nifty_5m is not None and nifty_5m >= 0) else "#cc0000"
+  )
+  bn_col = "#00b300" if (bn_5m is not None and bn_5m >= 0) else "#cc0000"
+  vix_col = "#cc0000" if (vix_5m is not None and vix_5m >= 0) else "#00b300"
   bn_s = f"₹{bn_p:,.2f}" if bn_p is not None else "N/A"
   vix_s = f"{vix_v:.2f}" if vix_v is not None else "N/A"
 
+  st.caption(f"📅 Session Date: {session_date}")
   st.write(
       f"""<div style="border:1px solid #333;border-radius:6px;padding:8px;font-family:monospace;background:#fff;margin-bottom:10px;">
         <div style="display:flex;border-bottom:1px solid #333;padding-bottom:5px;">
-            <div style="flex:1;border-right:1px solid #333;padding:4px;"><span style="font-size:11px;color:#555;">NIFTY 50</span><br><b style="font-size:16px;">₹{spot_price:,.2f}</b><br><span style="font-size:11px;color:{nc};">{nd_s}</span></div>
-            <div style="flex:1;padding:4px;padding-left:8px;"><span style="font-size:11px;color:#555;">BANK NIFTY</span><br><b style="font-size:16px;">{bn_s}</b><br><span style="font-size:11px;color:{bc};">{bd_s}</span></div>
+            <div style="flex:1;border-right:1px solid #333;padding:4px;"><span style="font-size:11px;color:#555;">NIFTY 50</span><br><b style="font-size:16px;">₹{spot_price:,.2f}</b><br><span style="font-size:11px;color:{nifty_col};">{nd_s}</span></div>
+            <div style="flex:1;padding:4px;padding-left:8px;"><span style="font-size:11px;color:#555;">BANK NIFTY</span><br><b style="font-size:16px;">{bn_s}</b><br><span style="font-size:11px;color:{bn_col};">{bd_s}</span></div>
         </div>
-        <div style="border-bottom:1px solid #333;padding:4px 0;text-align:center;"><span style="font-size:11px;color:#555;">INDIA VIX</span><br><b style="font-size:16px;">{vix_s}</b> <span style="font-size:11px;color:{vc};">{vd_s}</span></div>
+        <div style="border-bottom:1px solid #333;padding:4px 0;text-align:center;"><span style="font-size:11px;color:#555;">INDIA VIX</span><br><b style="font-size:16px;">{vix_s}</b> <span style="font-size:11px;color:{vix_col};">{vd_s}</span></div>
         <div style="display:flex;padding-top:5px;">
             <div style="flex:1;border-right:1px solid #333;padding:4px;"><span style="font-size:11px;color:#555;">PDH</span><br><b style="font-size:15px;">₹{pdh:,.2f}</b></div>
             <div style="flex:1;padding:4px;padding-left:8px;"><span style="font-size:11px;color:#555;">PDL</span><br><b style="font-size:15px;">₹{pdl:,.2f}</b></div>
@@ -212,25 +223,26 @@ try:
       unsafe_allow_html=True,
   )
 
+  # Alignment Engine
   st.markdown("---")
   st.subheader("⚡ சந்தை கட்டமைப்பு பகுப்பாய்வு")
-  buy_cond = [
+  b_cond = [
       spot_price > TC,
       spot_price > vwap_val,
       ema9_val > ema21_val,
       rsi_val >= 55,
   ]
-  sell_cond = [
+  s_cond = [
       spot_price < BC,
       spot_price < vwap_val,
       ema9_val < ema21_val,
       rsi_val <= 45,
   ]
-  if all(buy_cond):
+  if all(b_cond):
     st.success(
         "🟢 Bullish Alignment: Price > TC & VWAP; EMA 9 > 21; RSI > 55."
     )
-  elif all(sell_cond):
+  elif all(s_cond):
     st.error("🔴 Bearish Alignment: Price < BC & VWAP; EMA 9 < 21; RSI < 45.")
   else:
     st.info("⚖️ Mixed / Range-Bound: தெளிவான தொழில்நுட்ப திசை அமைப்பு இல்லை.")
@@ -239,6 +251,7 @@ try:
       f"Levels: BC ₹{BC:,.2f} | TC ₹{TC:,.2f} | R1 ₹{R1:,.2f} | S1 ₹{S1:,.2f}"
   )
 
+  # Market Breadth (Batched)
   st.markdown("---")
   st.subheader("Market Breadth - 18 Watchlist")
   b_stocks = get_breadth()
@@ -251,6 +264,7 @@ try:
         f"{sum(s['chg'] for s in b_stocks)/len(b_stocks):+.2f}%",
     )
 
+  # Plotly Chart with CPR Band
   st.markdown("---")
   st.subheader("📈 NIFTY Chart & CPR")
   cdf = session_hist[["Close", "VWAP"]].copy().dropna(subset=["Close"])
@@ -327,8 +341,9 @@ try:
             orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1
         ),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
+  # Chart Pattern Detection
   st.markdown("---")
   st.subheader("📊 Chart Pattern Detection")
   p_data = session_hist[["High", "Low", "Close"]].copy().dropna()
@@ -362,8 +377,9 @@ try:
   else:
     st.caption("No clear short-term chart pattern detected.")
 
+  # Technical Indicators
   st.markdown("---")
-  st.subheader("📊 Technical Indicators")
+  st.subheader("📊 Technical Indicators (Intraday)")
   i1, i2, i3, i4 = st.columns(4)
   i1.metric(
       "EMA 9",
@@ -385,7 +401,7 @@ try:
       if rsi_val >= 70
       else ("Oversold" if rsi_val <= 30 else "Neutral")
   )
-  i4.metric("RSI (14)", f"{rsi_val:.2f}", rsi_st)
+  i4.metric("RSI (Wilder)", f"{rsi_val:.2f}", rsi_st)
 
   st.markdown("---")
   st.subheader("🌐 வர்த்தக செய்திகள்")
@@ -397,10 +413,9 @@ try:
       " analysis only; not financial advice."
   )
 
-except Exception:
-  st.error(
-      "டேஷ்போர்டை புதுப்பிப்பதில் தற்காலிகச் சிக்கல். சில நிமிடங்கள் கழித்து"
-      " மீண்டும் முயற்சிக்கவும்."
-  )
+except StopException:
+  raise
+except Exception as e:
+  st.exception(e)
   st.stop()
-    
+  
