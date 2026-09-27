@@ -7,926 +7,400 @@ import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 import yfinance as yf
 
-
-st.set_page_config(
-    page_title="Nifty Monitor",
-    layout="wide",
-)
-
-st_autorefresh(
-    interval=30000,
-    key="nifty_refresh",
-)
-
+st.set_page_config(page_title="Nifty Smart Monitor", layout="wide")
+st_autorefresh(interval=30 * 1000, key="refresh")
 st.title("🦅 NIFTY 50 - Smart Money & Market Monitor")
 
 
-def to_ist(data):
-    output = data.copy()
-    output.index = pd.to_datetime(
-        output.index
-    )
-
-    if output.index.tz is not None:
-        output.index = output.index.tz_convert(
-            "Asia/Kolkata"
-        )
-    else:
-        output.index = output.index.tz_localize(
-            "Asia/Kolkata"
-        )
-
-    return output
+def format_lakhs(v):
+  try:
+    val = float(v)
+    if val >= 10000000:
+      return f"{val/10000000:.2f} Cr"
+    if val >= 100000:
+      return f"{val/100000:.2f} L"
+    if val >= 1000:
+      return f"{val/1000:.1f} K"
+    return f"{val:,.0f}"
+  except:
+    return str(v)
 
 
-def get_last_change(data):
-    if data is None or len(data) < 2:
-        return None, None
-
-    current = float(
-        data["Close"].iloc[-1]
-    )
-
-    previous = float(
-        data["Close"].iloc[-2]
-    )
-
-    if previous == 0:
-        return current, None
-
-    change = (
-        (current - previous)
-        / previous
-        * 100
-    )
-
-    return current, change
+def get_last_bar_change(d):
+  if d is None or len(d) < 2:
+    return None, None
+  c, p = float(d["Close"].iloc[-1]), float(d["Close"].iloc[-2])
+  return c, (((c - p) / p) * 100 if p != 0 else None)
 
 
-def get_rsi(close, period=14):
-    delta = close.diff()
-
-    gains = delta.clip(lower=0)
-    losses = -delta.clip(upper=0)
-
-    avg_gain = gains.rolling(
-        window=period,
-        min_periods=period,
-    ).mean()
-
-    avg_loss = losses.rolling(
-        window=period,
-        min_periods=period,
-    ).mean()
-
-    rs = avg_gain / avg_loss
-    rsi = 100 - (100 / (1 + rs))
-
-    rsi = rsi.mask(
-        (avg_loss == 0)
-        & (avg_gain > 0),
-        100.0,
-    )
-
-    rsi = rsi.mask(
-        (avg_gain == 0)
-        & (avg_loss > 0),
-        0.0,
-    )
-
-    rsi = rsi.mask(
-        (avg_gain == 0)
-        & (avg_loss == 0),
-        50.0,
-    )
-
-    return rsi
+def calculate_rsi(close, w=14):
+  d = close.diff()
+  g, l = d.clip(lower=0), -d.clip(upper=0)
+  ag = g.rolling(w, min_periods=w).mean()
+  al = l.rolling(w, min_periods=w).mean()
+  rsi = 100.0 - (100.0 / (1.0 + (ag / al)))
+  rsi = rsi.mask((al == 0) & (ag > 0), 100.0)
+  rsi = rsi.mask((ag == 0) & (al > 0), 0.0)
+  return rsi.mask((ag == 0) & (al == 0), 50.0)
 
 
 @st.cache_data(ttl=25)
-def get_history(symbol, period, interval=None):
-    ticker = yf.Ticker(symbol)
-
-    if interval:
-        return ticker.history(
-            period=period,
-            interval=interval,
-        )
-
-    return ticker.history(
-        period=period,
-    )
+def get_stock_data(sym, p, itv=None):
+  t = yf.Ticker(sym)
+  return t.history(period=p, interval=itv) if itv else t.history(period=p)
 
 
 @st.cache_data(ttl=120)
-def get_heavyweights():
-    symbols = [
-        "RELIANCE.NS",
-        "TCS.NS",
-        "HDFCBANK.NS",
-        "INFY.NS",
-        "ICICIBANK.NS",
-        "HINDUNILVR.NS",
-        "ITC.NS",
-        "SBIN.NS",
-        "BHARTIARTL.NS",
-        "KOTAKBANK.NS",
-        "LT.NS",
-        "AXISBANK.NS",
-        "BAJFINANCE.NS",
-        "ASIANPAINT.NS",
-        "MARUTI.NS",
-        "TITAN.NS",
-    ]
-
-    results = []
-
-    for symbol in symbols:
-        try:
-            data = yf.Ticker(
-                symbol
-            ).history(
-                period="2d",
-                interval="1d",
-            )
-
-            if len(data) < 2:
-                continue
-
-            current = float(
-                data["Close"].iloc[-1]
-            )
-
-            previous = float(
-                data["Close"].iloc[-2]
-            )
-
-            if previous <= 0:
-                continue
-
-            change = (
-                (current - previous)
-                / previous
-                * 100
-            )
-
-            results.append({
-                "Symbol": symbol.replace(
-                    ".NS",
-                    "",
-                ),
-                "LTP": round(current, 2),
-                "Change%": round(change, 2),
-            })
-
-        except Exception:
-            continue
-
-    return results
+def get_breadth():
+  syms = [
+      "ADANIENT.NS",
+      "ASIANPAINT.NS",
+      "AXISBANK.NS",
+      "BAJFINANCE.NS",
+      "BHARTIARTL.NS",
+      "HDFCBANK.NS",
+      "ICICIBANK.NS",
+      "INFY.NS",
+      "ITC.NS",
+      "KOTAKBANK.NS",
+      "LT.NS",
+      "M&M.NS",
+      "MARUTI.NS",
+      "RELIANCE.NS",
+      "SBIN.NS",
+      "TCS.NS",
+      "TATAMOTORS.NS",
+      "TITAN.NS",
+  ]
+  res = []
+  for s in syms:
+    try:
+      h = yf.Ticker(s).history(period="2d", interval="1d")
+      if len(h) >= 2:
+        c, p = float(h["Close"].iloc[-1]), float(h["Close"].iloc[-2])
+        if p > 0:
+          res.append({
+              "sym": s.replace(".NS", ""),
+              "ltp": round(c, 2),
+              "chg": round(((c - p) / p) * 100, 2),
+          })
+    except:
+      pass
+  return res
 
 
 @st.cache_data(ttl=300)
 def get_news():
-    feeds = [
-        "https://tamil.goodreturns.in/rss/feeds/tamil-money-news-fb.xml",
-        "https://www.moneycontrol.com/rss/marketreports.xml",
-        "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
-    ]
-
-    result = []
-
-    for url in feeds:
-        try:
-            response = requests.get(
-                url,
-                headers={
-                    "User-Agent": "Mozilla/5.0",
-                },
-                timeout=2,
-            )
-
-            if response.status_code != 200:
-                continue
-
-            feed = feedparser.parse(
-                response.content
-            )
-
-            for entry in feed.entries[:3]:
-                title = entry.get(
-                    "title",
-                    "",
-                ).strip()
-
-                link = entry.get(
-                    "link",
-                    "",
-                )
-
-                if not title:
-                    continue
-
-                if link:
-                    result.append(
-                        f"📰 [{title}]({link})"
-                    )
-                else:
-                    result.append(
-                        f"📰 {title}"
-                    )
-
-            if len(result) >= 6:
-                break
-
-        except Exception:
-            continue
-
-    if result:
-        return result[:6]
-
-    return [
-        "📰 Market news தற்போது கிடைக்கவில்லை."
-    ]
+  feeds = [
+      "https://tamil.goodreturns.in/rss/feeds/tamil-money-news-fb.xml",
+      "https://www.moneycontrol.com/rss/marketreports.xml",
+  ]
+  out = []
+  for u in feeds:
+    try:
+      r = requests.get(u, headers={"User-Agent": "Mozilla/5.0"}, timeout=2)
+      if r.status_code == 200:
+        f = feedparser.parse(r.content)
+        for e in f.entries[:3]:
+          t, l = e.get("title", "").strip(), e.get("link", "")
+          if t:
+            out.append(f"🌐 [{t}]({l})" if l else f"🌐 {t}")
+        if len(out) >= 6:
+          break
+    except:
+      continue
+  return out[:6] if out else ["🌐 வர்த்தகச் செய்திகள் தற்காலிகமாக கிடைக்கவில்லை."]
 
 
 try:
-    nifty = get_history(
-        "^NSEI",
-        "5d",
-        "5m",
-    )
-
-    daily = get_history(
-        "^NSEI",
-        "5d",
-        "1d",
-    )
-
-    bank_nifty = get_history(
-        "^NSEBANK",
-        "2d",
-        "5m",
-    )
-
-    india_vix = get_history(
-        "^INDIAVIX",
-        "2d",
-        "5m",
-    )
-
-    if nifty.empty or daily.empty:
-        st.error(
-            "Nifty data கிடைக்கவில்லை. "
-            "சில நிமிடங்கள் கழித்து முயற்சிக்கவும்."
-        )
-        st.stop()
-
-    if len(daily) < 2:
-        st.error(
-            "CPR கணக்கிட போதுமான daily data கிடைக்கவில்லை."
-        )
-        st.stop()
-
-    nifty = to_ist(nifty)
-    daily = to_ist(daily)
-
-    today = pd.Timestamp.now(
-        tz="Asia/Kolkata"
-    ).date()
-
-    if (
-        nifty.index.date == today
-    ).any():
-        active_date = today
-    else:
-        active_date = nifty.index[-1].date()
-
-    session = nifty[
-        nifty.index.date == active_date
-    ].copy()
-
-    if session.empty:
-        st.error("Session data கிடைக்கவில்லை.")
-        st.stop()
-
-    spot = float(
-        session["Close"].iloc[-1]
-    )
-
-    _, nifty_change = get_last_change(
-        session
-    )
-
-    old_sessions = daily[
-        daily.index.date < active_date
-    ]
-
-    if old_sessions.empty:
-        st.error(
-            "Previous session data கிடைக்கவில்லை."
-        )
-        st.stop()
-
-    previous_day = old_sessions.iloc[-1]
-
-    pdh = float(
-        previous_day["High"]
-    )
-
-    pdl = float(
-        previous_day["Low"]
-    )
-
-    pdc = float(
-        previous_day["Close"]
-    )
-
-    pivot = (
-        pdh + pdl + pdc
-    ) / 3
-
-    bc_raw = (
-        pdh + pdl
-    ) / 2
-
-    tc_raw = (
-        2 * pivot
-    ) - bc_raw
-
-    BC = min(
-        bc_raw,
-        tc_raw,
-    )
-
-    TC = max(
-        bc_raw,
-        tc_raw,
-    )
-
-    R1 = (
-        2 * pivot
-    ) - pdl
-
-    S1 = (
-        2 * pivot
-    ) - pdh
-
-    R2 = pivot + (
-        pdh - pdl
-    )
-
-    S2 = pivot - (
-        pdh - pdl
-    )
-
-    typical = (
-        session["High"]
-        + session["Low"]
-        + session["Close"]
-    ) / 3
-
-    cumulative_volume = session[
-        "Volume"
-    ].cumsum()
-
-    cumulative_value = (
-        typical * session["Volume"]
-    ).cumsum()
-
-    session["VWAP"] = np.where(
-        cumulative_volume > 0,
-        cumulative_value
-        / cumulative_volume,
-        np.nan,
-    )
-
-    if session["VWAP"].isna().all():
-        session["VWAP"] = session["Close"]
-
-    vwap = float(
-        session["VWAP"].iloc[-1]
-    )
-
-    bank_price, bank_change = get_last_change(
-        bank_nifty
-    )
-
-    vix_price, vix_change = get_last_change(
-        india_vix
-    )
-
-    ema9 = float(
-        nifty["Close"].ewm(
-            span=9,
-            adjust=False,
-        ).mean().iloc[-1]
-    )
-
-    ema21 = float(
-        nifty["Close"].ewm(
-            span=21,
-            adjust=False,
-        ).mean().iloc[-1]
-    )
-
-    rsi_series = get_rsi(
-        nifty["Close"],
-        14,
-    )
-
-    if pd.notna(rsi_series.iloc[-1]):
-        rsi = float(
-            rsi_series.iloc[-1]
-        )
-    else:
-        rsi = 50.0
-
-    st.caption(
-        f"Session: "
-        f"{active_date.strftime('%d-%b-%Y')} | "
-        f"Last Nifty bar: "
-        f"{session.index[-1].strftime('%H:%M IST')} | "
-        "Yahoo Finance feed may be delayed."
-    )
-
-    top_1, top_2, top_3 = st.columns(3)
-
-    with top_1:
-        st.metric(
-            "NIFTY 50",
-            f"₹{spot:,.2f}",
-            (
-                f"{nifty_change:+.2f}% (5m)"
-                if nifty_change is not None
-                else "N/A"
-            ),
-        )
-
-    with top_2:
-        st.metric(
-            "BANK NIFTY",
-            (
-                f"₹{bank_price:,.2f}"
-                if bank_price is not None
-                else "N/A"
-            ),
-            (
-                f"{bank_change:+.2f}% (5m)"
-                if bank_change is not None
-                else "N/A"
-            ),
-        )
-
-    with top_3:
-        st.metric(
-            "INDIA VIX",
-            (
-                f"{vix_price:.2f}"
-                if vix_price is not None
-                else "N/A"
-            ),
-            (
-                f"{vix_change:+.2f}% (5m)"
-                if vix_change is not None
-                else "N/A"
-            ),
-            delta_color="inverse",
-        )
-
-    st.markdown("---")
-    st.subheader("Rule-based Market Structure")
-
-    bullish = [
-        spot > TC,
-        spot > vwap,
-        ema9 > ema21,
-        rsi >= 55,
-    ]
-
-    bearish = [
-        spot < BC,
-        spot < vwap,
-        ema9 < ema21,
-        rsi <= 45,
-    ]
-
-    if all(bullish):
-        st.success(
-            "🟢 Bullish technical alignment."
-        )
-
-    elif all(bearish):
-        st.error(
-            "🔴 Bearish technical alignment."
-        )
-
-    else:
-        st.info(
-            "🟡 Mixed conditions: "
-            "no clear technical alignment."
-        )
-
-    st.caption(
-        "Technical analysis only; "
-        "not a trading recommendation."
-    )
-
-    st.markdown("---")
-    st.subheader("Live Alerts")
-
-    if ema9 > ema21:
-        st.write(
-            "🟢 EMA 9 is above EMA 21."
-        )
-    else:
-        st.write(
-            "🔴 EMA 9 is below EMA 21."
-        )
-
-    if spot > vwap:
-        st.write(
-            "🟢 Price is above session VWAP."
-        )
-    else:
-        st.write(
-            "🔴 Price is below session VWAP."
-        )
-
-    if rsi >= 70:
-        st.write(
-            f"⚠️ RSI overbought: {rsi:.1f}"
-        )
-
-    elif rsi <= 30:
-        st.write(
-            f"🟢 RSI oversold: {rsi:.1f}"
-        )
-
-    if spot > pdh:
-        st.write(
-            f"🚀 PDH breakout above ₹{pdh:,.2f}"
-        )
-
-    elif spot < pdl:
-        st.write(
-            f"🩸 PDL breakdown below ₹{pdl:,.2f}"
-        )
-
-    st.markdown("---")
-    st.subheader("CPR & Pivot Levels")
-
-    level_1, level_2, level_3 = st.columns(3)
-
-    with level_1:
-        st.metric(
-            "PDH",
-            f"₹{pdh:,.2f}",
-        )
-
-        st.metric(
-            "R2",
-            f"₹{R2:,.2f}",
-        )
-
-        st.metric(
-            "R1",
-            f"₹{R1:,.2f}",
-        )
-
-    with level_2:
-        st.metric(
-            "TC",
-            f"₹{TC:,.2f}",
-        )
-
-        st.metric(
-            "Pivot",
-            f"₹{pivot:,.2f}",
-        )
-
-        st.metric(
-            "BC",
-            f"₹{BC:,.2f}",
-        )
-
-    with level_3:
-        st.metric(
-            "S1",
-            f"₹{S1:,.2f}",
-        )
-
-        st.metric(
-            "S2",
-            f"₹{S2:,.2f}",
-        )
-
-        st.metric(
-            "PDL",
-            f"₹{pdl:,.2f}",
-        )
-
-    st.markdown("---")
-    st.subheader(
-        "🏢 Nifty Heavyweights "
-        "- Top Gainers & Losers"
-    )
-
-    heavyweight_data = get_heavyweights()
-
-    if heavyweight_data:
-        sorted_heavyweights = sorted(
-            heavyweight_data,
-            key=lambda item: item["Change%"],
-            reverse=True,
-        )
-
-        gainers, losers = st.columns(2)
-
-        with gainers:
-            st.markdown("### 🟢 Top Gainers")
-
-            for stock in sorted_heavyweights[:5]:
-                st.write(
-                    f"**{stock['Symbol']}** — "
-                    f"₹{stock['LTP']:,.2f} "
-                    f"({stock['Change%']:+.2f}%)"
-                )
-
-        with losers:
-            st.markdown("### 🔴 Top Losers")
-
-            for stock in sorted_heavyweights[-5:][::-1]:
-                st.write(
-                    f"**{stock['Symbol']}** — "
-                    f"₹{stock['LTP']:,.2f} "
-                    f"({stock['Change%']:+.2f}%)"
-                )
-
-    else:
-        st.warning(
-            "Heavyweight data unavailable."
-        )
-
-    st.markdown("---")
-    st.subheader(
-        "📈 NIFTY Intraday Chart - "
-        "Price, VWAP & CPR"
-    )
-
-    chart_data = session[
-        ["Close", "VWAP"]
-    ].copy()
-
-    chart_data = chart_data.replace(
-        [np.inf, -np.inf],
-        np.nan,
-    )
-
-    chart_data = chart_data.dropna(
-        subset=["Close"]
-    )
-
-    chart_data = chart_data[
-        chart_data["Close"] > 0
-    ].copy()
-
-    if chart_data.empty:
-        st.warning(
-            "Chart data unavailable."
-        )
-
-    else:
-        values = (
-            chart_data["Close"]
-            .dropna()
-            .tolist()
-            + chart_data["VWAP"]
-            .dropna()
-            .tolist()
-            + [
-                pdh,
-                pdl,
-                R1,
-                S1,
-                BC,
-                TC,
-                pivot,
-            ]
-        )
-
-        valid_values = [
-            float(value)
-            for value in values
-            if pd.notna(value)
-            and np.isfinite(value)
-            and abs(
-                float(value) - spot
-            ) <= 400
-        ]
-
-        if valid_values:
-            low = min(valid_values)
-            high = max(valid_values)
-
-            padding = max(
-                25.0,
-                (high - low) * 0.10,
-            )
-
-            y_range = [
-                low - padding,
-                high + padding,
-            ]
-
-        else:
-            y_range = [
-                spot - 250,
-                spot + 250,
-            ]
-
-        chart = go.Figure()
-
-        chart.add_hrect(
-            y0=BC,
-            y1=TC,
-            fillcolor="LightSkyBlue",
-            opacity=0.15,
-            line_width=0,
-            layer="below",
-        )
-
-        chart.add_trace(
-            go.Scatter(
-                x=chart_data.index,
-                y=chart_data["Close"],
-                mode="lines",
-                name="Price",
-                line=dict(
-                    color="#0052cc",
-                    width=2.5,
-                ),
-            )
-        )
-
-        chart.add_trace(
-            go.Scatter(
-                x=chart_data.index,
-                y=chart_data["VWAP"],
-                mode="lines",
-                name="VWAP",
-                line=dict(
-                    color="#ff9900",
-                    width=1.8,
-                    dash="dash",
-                ),
-            )
-        )
-
-        levels = [
-            (
-                "PDH",
-                pdh,
-                "#cc0000",
-                "solid",
-            ),
-            (
-                "R1",
-                R1,
-                "#ff6666",
-                "dot",
-            ),
-            (
-                "TC",
-                TC,
-                "#66b3ff",
-                "dot",
-            ),
-            (
-                "Pivot",
-                pivot,
-                "#0066cc",
-                "dash",
-            ),
-            (
-                "BC",
-                BC,
-                "#3399ff",
-                "dot",
-            ),
-            (
-                "S1",
-                S1,
-                "#66cc66",
-                "dot",
-            ),
-            (
-                "PDL",
-                pdl,
-                "#00b300",
-                "solid",
-            ),
-        ]
-
-        start_time = chart_data.index[0]
-        end_time = chart_data.index[-1]
-
-        for name, price, color, dash in levels:
-            chart.add_trace(
-                go.Scatter(
-                    x=[
-                        start_time,
-                        end_time,
-                    ],
-                    y=[
-                        price,
-                        price,
-                    ],
-                    mode="lines",
-                    name=name,
-                    line=dict(
-                        color=color,
-                        width=1,
-                        dash=dash,
-                    ),
-                )
-            )
-
-        chart.update_layout(
-            height=450,
-            margin=dict(
-                l=10,
-                r=10,
-                t=35,
-                b=35,
-            ),
-            xaxis=dict(
-                title="Time (IST)",
-                tickformat="%H:%M",
-            ),
-            yaxis=dict(
-                title="Price (₹)",
-                range=y_range,
-            ),
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="right",
-                x=1,
-            ),
-            hovermode="x unified",
-        )
-
-        st.plotly_chart(
-            chart,
-            use_container_width=True,
-        )
-
-    st.markdown("---")
-    st.subheader("Technical Indicators")
-
-    i1, i2, i3, i4 = st.columns(4)
-
-    with i1:
-        st.metric(
-            "EMA 9",
-            f"₹{ema9:,.2f}",
-        )
-
-    with i2:
-        st.metric(
-            "EMA 21",
-            f"₹{ema21:,.2f}",
-        )
-
-    with i3:
-        st.metric(
-            "Session VWAP",
-            f"₹{vwap:,.2f}",
-        )
-
-    with i4:
-        st.metric(
-            "RSI (14)",
-            f"{rsi:.2f}",
-        )
-
-    st.markdown("---")
-    st.subheader("🌐 Market News")
-
-    for item in get_news():
-        st.markdown(item)
-
-    st.caption(
-        "Data source: Yahoo Finance via yfinance. "
-        "Quotes may be delayed or unavailable. "
-        "This dashboard is for educational "
-        "and analysis use only."
-    )
-
-except Exception:
+  hist = get_stock_data("^NSEI", "5d", "5m")
+  daily = get_stock_data("^NSEI", "5d", "1d")
+  bn_hist = get_stock_data("^NSEBANK", "2d", "5m")
+  vix_hist = get_stock_data("^INDIAVIX", "2d", "5m")
+
+  if hist.empty or daily.empty or len(daily) < 2:
+    st.error("Nifty data unavailable.")
+    st.stop()
+
+  hist.index = pd.to_datetime(hist.index)
+  hist.index = (
+      hist.index.tz_convert("Asia/Kolkata")
+      if hist.index.tz is not None
+      else hist.index.tz_localize("Asia/Kolkata")
+  )
+  daily.index = pd.to_datetime(daily.index)
+  daily.index = (
+      daily.index.tz_convert("Asia/Kolkata")
+      if daily.index.tz is not None
+      else daily.index.tz_localize("Asia/Kolkata")
+  )
+
+  today = pd.Timestamp.now(tz="Asia/Kolkata").date()
+  session_date = (
+      today if (hist.index.date == today).any() else hist.index[-1].date()
+  )
+  session_hist = hist[hist.index.date == session_date].copy()
+  if session_hist.empty:
+    st.error("Session data unavailable.")
+    st.stop()
+
+  spot_price = float(session_hist["Close"].iloc[-1])
+  _, nifty_5m = get_last_bar_change(session_hist)
+
+  previous_sessions = daily[pd.Index(daily.index.date) < session_date]
+  if previous_sessions.empty:
     st.error(
-        "டேஷ்போர்டை புதுப்பிப்பதில் தற்காலிகச் சிக்கல். "
-        "சில நிமிடங்கள் கழித்து மீண்டும் முயற்சிக்கவும்."
+        "Previous completed session data கிடைக்கவில்லை; CPR கணக்கிட முடியாது."
     )
     st.stop()
+
+  prev_day = previous_sessions.iloc[-1]
+  pdh, pdl, pdc = (
+      float(prev_day["High"]),
+      float(prev_day["Low"]),
+      float(prev_day["Close"]),
+  )
+
+  PP = (pdh + pdl + pdc) / 3
+  BC = min((pdh + pdl) / 2, (2 * PP) - ((pdh + pdl) / 2))
+  TC = max((pdh + pdl) / 2, (2 * PP) - ((pdh + pdl) / 2))
+  R1, S1 = (2 * PP) - pdl, (2 * PP) - pdh
+  R2, S2 = PP + (pdh - pdl), PP - (pdh - pdl)
+
+  tp = (session_hist["High"] + session_hist["Low"] + session_hist["Close"]) / 3
+  cv = session_hist["Volume"].cumsum()
+  session_hist["VWAP"] = np.where(
+      cv > 0, (tp * session_hist["Volume"]).cumsum() / cv, np.nan
+  )
+  if session_hist["VWAP"].isna().all():
+    session_hist["VWAP"] = session_hist["Close"]
+
+  bn_p, bn_5m = get_last_bar_change(bn_hist)
+  vix_v, vix_5m = get_last_bar_change(vix_hist)
+  ema9_val = float(hist["Close"].ewm(span=9, adjust=False).mean().iloc[-1])
+  ema21_val = float(hist["Close"].ewm(span=21, adjust=False).mean().iloc[-1])
+  rsi_series = calculate_rsi(hist["Close"], 14)
+  rsi_val = (
+      float(rsi_series.iloc[-1]) if pd.notna(rsi_series.iloc[-1]) else 50.0
+  )
+  vwap_val = (
+      float(session_hist["VWAP"].iloc[-1])
+      if pd.notna(session_hist["VWAP"].iloc[-1])
+      else spot_price
+  )
+
+  nd_s = f"{nifty_5m:+.2f}%" if nifty_5m is not None else "N/A"
+  bd_s = f"{bn_5m:+.2f}%" if bn_5m is not None else "N/A"
+  vd_s = f"{vix_5m:+.2f}%" if vix_5m is not None else "N/A"
+  nc = "#00b300" if (nifty_5m is not None and nifty_5m >= 0) else "#cc0000"
+  bc = "#00b300" if (bn_5m is not None and bn_5m >= 0) else "#cc0000"
+  vc = "#cc0000" if (vix_5m is not None and vix_5m >= 0) else "#00b300"
+  bn_s = f"₹{bn_p:,.2f}" if bn_p is not None else "N/A"
+  vix_s = f"{vix_v:.2f}" if vix_v is not None else "N/A"
+
+  st.write(
+      f"""<div style="border:1px solid #333;border-radius:6px;padding:8px;font-family:monospace;background:#fff;margin-bottom:10px;">
+        <div style="display:flex;border-bottom:1px solid #333;padding-bottom:5px;">
+            <div style="flex:1;border-right:1px solid #333;padding:4px;"><span style="font-size:11px;color:#555;">NIFTY 50</span><br><b style="font-size:16px;">₹{spot_price:,.2f}</b><br><span style="font-size:11px;color:{nc};">{nd_s}</span></div>
+            <div style="flex:1;padding:4px;padding-left:8px;"><span style="font-size:11px;color:#555;">BANK NIFTY</span><br><b style="font-size:16px;">{bn_s}</b><br><span style="font-size:11px;color:{bc};">{bd_s}</span></div>
+        </div>
+        <div style="border-bottom:1px solid #333;padding:4px 0;text-align:center;"><span style="font-size:11px;color:#555;">INDIA VIX</span><br><b style="font-size:16px;">{vix_s}</b> <span style="font-size:11px;color:{vc};">{vd_s}</span></div>
+        <div style="display:flex;padding-top:5px;">
+            <div style="flex:1;border-right:1px solid #333;padding:4px;"><span style="font-size:11px;color:#555;">PDH</span><br><b style="font-size:15px;">₹{pdh:,.2f}</b></div>
+            <div style="flex:1;padding:4px;padding-left:8px;"><span style="font-size:11px;color:#555;">PDL</span><br><b style="font-size:15px;">₹{pdl:,.2f}</b></div>
+        </div></div>""",
+      unsafe_allow_html=True,
+  )
+
+  st.markdown("---")
+  st.subheader("⚡ சந்தை கட்டமைப்பு பகுப்பாய்வு")
+  buy_cond = [
+      spot_price > TC,
+      spot_price > vwap_val,
+      ema9_val > ema21_val,
+      rsi_val >= 55,
+  ]
+  sell_cond = [
+      spot_price < BC,
+      spot_price < vwap_val,
+      ema9_val < ema21_val,
+      rsi_val <= 45,
+  ]
+  if all(buy_cond):
+    st.success(
+        "🟢 Bullish Alignment: Price > TC & VWAP; EMA 9 > 21; RSI > 55."
+    )
+  elif all(sell_cond):
+    st.error("🔴 Bearish Alignment: Price < BC & VWAP; EMA 9 < 21; RSI < 45.")
+  else:
+    st.info("⚖️ Mixed / Range-Bound: தெளிவான தொழில்நுட்ப திசை அமைப்பு இல்லை.")
+
+  st.caption(
+      f"Levels: BC ₹{BC:,.2f} | TC ₹{TC:,.2f} | R1 ₹{R1:,.2f} | S1 ₹{S1:,.2f}"
+  )
+
+  st.markdown("---")
+  st.subheader("Market Breadth - 18 Watchlist")
+  b_stocks = get_breadth()
+  if b_stocks:
+    b1, b2, b3 = st.columns(3)
+    b1.metric("Advances", sum(1 for s in b_stocks if s["chg"] > 0.05))
+    b2.metric("Declines", sum(1 for s in b_stocks if s["chg"] < -0.05))
+    b3.metric(
+        "Avg Change",
+        f"{sum(s['chg'] for s in b_stocks)/len(b_stocks):+.2f}%",
+    )
+
+  st.markdown("---")
+  st.subheader("📈 NIFTY Chart & CPR")
+  cdf = session_hist[["Close", "VWAP"]].copy().dropna(subset=["Close"])
+  if not cdf.empty:
+    fig = go.Figure()
+    fig.add_hrect(
+        y0=BC,
+        y1=TC,
+        fillcolor="LightSkyBlue",
+        opacity=0.15,
+        line_width=0,
+        layer="below",
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=cdf.index,
+            y=cdf["Close"],
+            mode="lines",
+            name="Price",
+            line=dict(color="#0052cc", width=2),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=cdf.index,
+            y=cdf["VWAP"],
+            mode="lines",
+            name="VWAP",
+            line=dict(color="#ff9900", width=1.5, dash="dash"),
+        )
+    )
+    for lvl_name, lvl_val, lvl_col, lvl_dash in [
+        ("TC", TC, "#66b3ff", "dot"),
+        ("Pivot", PP, "#0066cc", "dash"),
+        ("BC", BC, "#3399ff", "dot"),
+        ("R1", R1, "#ff6666", "dot"),
+        ("S1", S1, "#66cc66", "dot"),
+        ("PDH", pdh, "#cc0000", "solid"),
+        ("PDL", pdl, "#00b300", "solid"),
+    ]:
+      fig.add_trace(
+          go.Scatter(
+              x=[cdf.index[0], cdf.index[-1]],
+              y=[lvl_val, lvl_val],
+              mode="lines",
+              name=lvl_name,
+              line=dict(color=lvl_col, width=1, dash=lvl_dash),
+          )
+      )
+
+    chart_vals = (
+        cdf["Close"].dropna().tolist()
+        + cdf["VWAP"].dropna().tolist()
+        + [pdh, pdl, R1, R2, S1, S2, PP, BC, TC]
+    )
+    valid_vals = [
+        float(v)
+        for v in chart_vals
+        if pd.notna(v) and np.isfinite(v) and abs(float(v) - spot_price) <= 400
+    ]
+    if valid_vals:
+      low_val, high_val = min(valid_vals), max(valid_vals)
+      pad = max(25.0, (high_val - low_val) * 0.10)
+      y_min, y_max = low_val - pad, high_val + pad
+    else:
+      y_min, y_max = spot_price - 250, spot_price + 250
+
+    fig.update_layout(
+        height=400,
+        margin=dict(l=10, r=10, t=25, b=25),
+        xaxis=dict(tickformat="%H:%M"),
+        yaxis=dict(range=[y_min, y_max]),
+        legend=dict(
+            orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1
+        ),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+  st.markdown("---")
+  st.subheader("📊 Chart Pattern Detection")
+  p_data = session_hist[["High", "Low", "Close"]].copy().dropna()
+  patterns = []
+  if len(p_data) >= 20:
+    hi, lo = p_data["High"].values, p_data["Low"].values
+    if max(hi[-5:]) > max(hi[-10:-5]) and min(lo[-5:]) > min(lo[-10:-5]):
+      patterns.append(
+          ("UPWARD BIAS", "Recent 5-bar range is above prior range.", "green")
+      )
+    elif max(hi[-5:]) < max(hi[-10:-5]) and min(lo[-5:]) < min(lo[-10:-5]):
+      patterns.append(
+          ("DOWNWARD BIAS", "Recent 5-bar range is below prior range.", "red")
+      )
+
+    if lo[-20:].min() > 0:
+      rng_p = (hi[-20:].max() - lo[-20:].min()) / lo[-20:].min() * 100
+      if rng_p < 0.5:
+        patterns.append(
+            ("CONSOLIDATION", "Recent price range is narrow.", "orange")
+        )
+
+  if patterns:
+    for name, desc, col in patterns:
+      if col == "green":
+        st.success(f"{name}: {desc}")
+      elif col == "red":
+        st.error(f"{name}: {desc}")
+      else:
+        st.warning(f"{name}: {desc}")
+  else:
+    st.caption("No clear short-term chart pattern detected.")
+
+  st.markdown("---")
+  st.subheader("📊 Technical Indicators")
+  i1, i2, i3, i4 = st.columns(4)
+  i1.metric(
+      "EMA 9",
+      f"₹{ema9_val:,.2f}",
+      "Above" if spot_price > ema9_val else "Below",
+  )
+  i2.metric(
+      "EMA 21",
+      f"₹{ema21_val:,.2f}",
+      "Above" if spot_price > ema21_val else "Below",
+  )
+  i3.metric(
+      "VWAP",
+      f"₹{vwap_val:,.2f}",
+      "Above" if spot_price > vwap_val else "Below",
+  )
+  rsi_st = (
+      "Overbought"
+      if rsi_val >= 70
+      else ("Oversold" if rsi_val <= 30 else "Neutral")
+  )
+  i4.metric("RSI (14)", f"{rsi_val:.2f}", rsi_st)
+
+  st.markdown("---")
+  st.subheader("🌐 வர்த்தக செய்திகள்")
+  for item in get_news():
+    st.markdown(item)
+
+  st.caption(
+      "Data source: Yahoo Finance via yfinance. Quotes may be delayed. For"
+      " analysis only; not financial advice."
+  )
+
+except Exception:
+  st.error(
+      "டேஷ்போர்டை புதுப்பிப்பதில் தற்காலிகச் சிக்கல். சில நிமிடங்கள் கழித்து"
+      " மீண்டும் முயற்சிக்கவும்."
+  )
+  st.stop()
+    
