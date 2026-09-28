@@ -39,10 +39,7 @@ def get_stock_data(sym, p, itv=None):
 
 @st.cache_data(ttl=300)
 def get_breadth():
-    syms = ["ADANIENT.NS", "ASIANPAINT.NS", "AXISBANK.NS", "BAJFINANCE.NS",
-            "BHARTIARTL.NS", "HDFCBANK.NS", "ICICIBANK.NS", "INFY.NS",
-            "ITC.NS", "KOTAKBANK.NS", "LT.NS", "M&M.NS", "MARUTI.NS",
-            "RELIANCE.NS", "SBIN.NS", "TCS.NS", "TATAMOTORS.NS", "TITAN.NS"]
+    syms = ["ADANIENT.NS", "ASIANPAINT.NS", "AXISBANK.NS", "BAJFINANCE.NS", "BHARTIARTL.NS", "HDFCBANK.NS", "ICICIBANK.NS", "INFY.NS", "ITC.NS", "KOTAKBANK.NS", "LT.NS", "M&M.NS", "MARUTI.NS", "RELIANCE.NS", "SBIN.NS", "TCS.NS", "TATAMOTORS.NS", "TITAN.NS"]
     out = []
     try:
         df = yf.download(syms, period="2d", interval="1d", group_by="ticker", progress=False, threads=True)
@@ -63,8 +60,7 @@ def get_breadth():
 
 @st.cache_data(ttl=300)
 def get_news():
-    feeds = ["https://tamil.goodreturns.in/rss/feeds/tamil-money-news-fb.xml",
-             "https://www.moneycontrol.com/rss/marketreports.xml"]
+    feeds = ["https://tamil.goodreturns.in/rss/feeds/tamil-money-news-fb.xml", "https://www.moneycontrol.com/rss/marketreports.xml"]
     out = []
     for u in feeds:
         try:
@@ -184,7 +180,6 @@ R2c = Pc + (R1c - S1c)
 S2c = Pc - (R1c - S1c)
 R3c = pdh + 2 * (Pc - pdl)
 S3c = pdl - 2 * (pdh - Pc)
-
 c1, c2, c3 = st.columns(3)
 c1.metric("R3", "Rs {:,.2f}".format(R3c))
 c1.metric("R2", "Rs {:,.2f}".format(R2c))
@@ -232,111 +227,89 @@ try:
                 else:
                     gt = "FLAT"
                     gc = "#666666"
-                st.markdown(
-                    '<div style="padding:10px;background:#f8f9fa;border-radius:8px;border-left:4px solid ' + gc + ';">'
-                    '<b style="color:' + gc + ';">' + gt + '</b><br>'
-                    '<span>Gap: <b>Rs {:,.2f} pts</b> ({:+.2f}%)</span><br>'.format(gp, gpp)
-                    + '<span style="font-size:12px;">Prev: Rs {:,.2f} | Open: Rs {:,.2f}</span></div>'.format(pval, tval),
-                    unsafe_allow_html=True)
+                st.markdown('<div style="padding:10px;background:#f8f9fa;border-radius:8px;border-left:4px solid ' + gc + ';"><b style="color:' + gc + ';">' + gt + '</b><br><span>Gap: <b>Rs {:,.2f} pts</b> ({:+.2f}%)</span><br><span style="font-size:12px;">Prev: Rs {:,.2f} | Open: Rs {:,.2f}</span></div>'.format(gp, gpp, pval, tval), unsafe_allow_html=True)
                 g1, g2, g3 = st.columns(3)
-                with g1:
-                    st.markdown("**Gap Up**")
-                    st.write("X1H: Rs {:,.2f}".format(X1h))
-                    st.write("X2H: Rs {:,.2f}".format(X2h))
-                    st.write("X3: {:+,.2f}".format(X3u))
-                    st.write("X4: {:+,.2f}".format(X4u))
-                    st.success("X5: Rs {:,.2f}".format(X5u))
-                with g2:
-                    st.markdown("**Gap Down**")
-                    st.write("X1L: Rs {:,.2f}".format(X1l))
-                    st.write("X2L: Rs {:,.2f}".format(X2l))
-                    st.write("X3: {:+,.2f}".format(X3d))
-                    st.write("X4: {:+,.2f}".format(X4d))
-                    st.error("X5: Rs {:,.2f}".format(X5d))
-                with g3:
-                    st.markdown("**Insight**")
-                    if gp > 0:
-                        st.info("Reversal: Rs {:,.2f}".format(X5u))
-                    elif gp < 0:
-                        st.info("Upside: Rs {:,.2f}".format(X5d))
-                    else:
-                        st.info("No gap")
+                g1.markdown("**Gap Up**")
+                g1.write("X1H: Rs {:,.2f}".format(X1h))
+                g1.write("X2H: Rs {:,.2f}".format(X2h))
+                g1.write("X3: {:+,.2f}".format(X3u))
+                g1.write("X4: {:+,.2f}".format(X4u))
+                g1.success("X5: Rs {:,.2f}".format(X5u))
+                g2.markdown("**Gap Down**")
+                g2.write("X1L: Rs {:,.2f}".format(X1l))
+                g2.write("X2L: Rs {:,.2f}".format(X2l))
+                g2.write("X3: {:+,.2f}".format(X3d))
+                g2.write("X4: {:+,.2f}".format(X4d))
+                g2.error("X5: Rs {:,.2f}".format(X5d))
+                g3.markdown("**Insight**")
+                if gp > 0:
+                    g3.info("Reversal: Rs {:,.2f}".format(X5u))
+                elif gp < 0:
+                    g3.info("Upside: Rs {:,.2f}".format(X5d))
+                else:
+                    g3.info("No gap")
 except Exception:
     st.caption("3-min data unavailable.")
 
 st.markdown("---")
-st.subheader("Option Chain OI (Model Estimate)")
-st.caption("Estimated model only. For real OI use Angel One.")
-
+st.subheader("Option Chain OI (Model)")
+st.caption("Estimated model. Real OI needs Angel One.")
 atm = int(round(spot_price / 50) * 50)
-strikes = [atm + (i * 50) for i in range(-5, 6)]
-oi_rows = []
-tot_c = 0
-tot_p = 0
-for s in strikes:
+sk = [atm + (i * 50) for i in range(-5, 6)]
+rr = []
+tcall = 0
+tput = 0
+for s in sk:
     d = abs(spot_price - s)
-    c_oi = int(max(800000, 4500000 - (d * 8500)))
-    p_oi = int(max(700000, 5200000 - (d * 8000)))
-    c_chg = int(c_oi * 0.08)
-    p_chg = int(p_oi * 0.06)
-    tot_c += c_oi
-    tot_p += p_oi
-    if p_oi > c_oi * 1.3:
-        sig = "Put Support"
-    elif c_oi > p_oi * 1.3:
-        sig = "Call Resist"
+    co = int(max(800000, 4500000 - (d * 8500)))
+    po = int(max(700000, 5200000 - (d * 8000)))
+    tcall += co
+    tput += po
+    if po > co * 1.3:
+        sg = "Put Support"
+    elif co > po * 1.3:
+        sg = "Call Resist"
     else:
-        sig = "Neutral"
-    oi_rows.append({
-        "Strike": "Rs {:,}".format(s) + (" (ATM)" if s == atm else ""),
-        "Call OI": "{:.1f} L".format(c_oi / 100000),
-        "Call Chg": "{:+.1f} L".format(c_chg / 100000),
-        "Put OI": "{:.1f} L".format(p_oi / 100000),
-        "Put Chg": "{:+.1f} L".format(p_chg / 100000),
-        "Signal": sig,
-    })
-pcr = tot_p / tot_c if tot_c > 0 else 0
-oc1, oc2, oc3 = st.columns(3)
-oc1.metric("PCR", "{:.2f}".format(pcr))
-oc2.metric("Call OI Total", "{:.1f} L".format(tot_c / 100000))
-oc3.metric("Put OI Total", "{:.1f} L".format(tot_p / 100000))
-st.dataframe(pd.DataFrame(oi_rows), hide_index=True, use_container_width=True)
+        sg = "Neutral"
+    rr.append({"Strike": "Rs {:,}".format(s) + (" (ATM)" if s == atm else ""), "Call OI": "{:.1f} L".format(co / 100000), "Put OI": "{:.1f} L".format(po / 100000), "Signal": sg})
+pcr = tput / tcall if tcall > 0 else 0
+o1, o2, o3 = st.columns(3)
+o1.metric("PCR", "{:.2f}".format(pcr))
+o2.metric("Call Total", "{:.1f} L".format(tcall / 100000))
+o3.metric("Put Total", "{:.1f} L".format(tput / 100000))
+st.dataframe(pd.DataFrame(rr), hide_index=True, use_container_width=True)
 
 st.markdown("---")
 st.subheader("OI Spike Detection")
-spike_rows = []
-for s in strikes:
+spl = []
+for s in sk:
     d = abs(spot_price - s)
-    c_oi = int(max(800000, 4500000 - (d * 8500)))
-    p_oi = int(max(700000, 5200000 - (d * 8000)))
-    if c_oi > 4000000:
-        spike_rows.append("Rs {:,} Call - High OI (Resistance)".format(s))
-    if p_oi > 4500000:
-        spike_rows.append("Rs {:,} Put - High OI (Support)".format(s))
-if spike_rows:
-    for sp in spike_rows:
-        st.info(sp)
+    co = int(max(800000, 4500000 - (d * 8500)))
+    po = int(max(700000, 5200000 - (d * 8000)))
+    if co > 4000000:
+        spl.append("Rs {:,} Call - Resistance".format(s))
+    if po > 4500000:
+        spl.append("Rs {:,} Put - Support".format(s))
+if spl:
+    for x in spl:
+        st.info(x)
 else:
-    st.caption("No significant OI spike detected.")
+    st.caption("No spike.")
 
 st.markdown("---")
 st.subheader("Multi-Timeframe Trend")
 try:
-    for tn, tp, ti in [("1H", "5d", "1h"), ("15m", "5d", "15m"), ("5m", "5d", "5m")]:
+    for tn, tpp, ti in [("1H", "5d", "1h"), ("15m", "5d", "15m"), ("5m", "5d", "5m")]:
         try:
-            tdf = get_stock_data("^NSEI", tp, ti)
+            tdf = get_stock_data("^NSEI", tpp, ti)
             if not tdf.empty and len(tdf) >= 21:
-                tc = tdf["Close"]
-                e9 = tc.ewm(span=9, adjust=False).mean().iloc[-1]
-                e21 = tc.ewm(span=21, adjust=False).mean().iloc[-1]
-                tr = "Bullish" if e9 > e21 else "Bearish"
-                tl_ = float(tc.iloc[-1])
-                col = "#00b300" if tr == "Bullish" else "#cc0000"
-                st.markdown(
-                    '<div style="padding:6px 12px;margin-bottom:4px;background:#f8f9fa;border-left:4px solid ' + col + ';">'
-                    '<b>' + tn + '</b> | Rs {:,.2f} | EMA9: Rs {:,.2f} | EMA21: Rs {:,.2f} | '.format(tl_, e9, e21)
-                    + '<span style="color:' + col + ';font-weight:bold;">' + tr + '</span></div>',
-                    unsafe_allow_html=True)
+                tcl = tdf["Close"]
+                e9 = tcl.ewm(span=9, adjust=False).mean().iloc[-1]
+                e21 = tcl.ewm(span=21, adjust=False).mean().iloc[-1]
+                trn = "Bullish" if e9 > e21 else "Bearish"
+                tl_ = float(tcl.iloc[-1])
+                col = "#00b300" if trn == "Bullish" else "#cc0000"
+                st.markdown('<div style="padding:6px 12px;margin-bottom:4px;background:#f8f9fa;border-left:4px solid ' + col + ';"><b>' + tn + '</b> | Rs {:,.2f} | EMA9: Rs {:,.2f} | EMA21: Rs {:,.2f} | '.format(tl_, e9, e21) + '<span style="color:' + col + ';font-weight:bold;">' + trn + '</span></div>', unsafe_allow_html=True)
         except Exception:
             pass
 except Exception:
@@ -472,4 +445,14 @@ try:
         if shi:
             vf.add_trace(go.Scatter(x=[vt[i] for i in shi], y=shv, mode="markers+text", name="H", marker=dict(color="#cc0000", size=10, symbol="triangle-down"), text=["H" + str(k+1) for k in range(len(shi))], textposition="top center", textfont=dict(size=9, color="#cc0000")))
         if sli:
-            vf.add_trace(go.Scatter(x=[vt[i] for i in sli], y=slv, mode="m
+            vf.add_trace(go.Scatter(x=[vt[i] for i in sli], y=slv, mode="markers+text", name="L", marker=dict(color="#00b300", size=10, symbol="triangle-up"), text=["L" + str(k+1) for k in range(len(sli))], textposition="bottom center", textfont=dict(size=9, color="#00b300")))
+        vf.update_layout(height=400, margin=dict(l=10, r=10, t=25, b=25), xaxis=dict(title="Time", tickformat="%H:%M"), yaxis=dict(title="Price"), hovermode="x unified")
+        st.plotly_chart(vf, use_container_width=True)
+        if len(sli) >= 2 and slv[-2] > 0 and abs(slv[-2] - slv[-1]) / slv[-2] < 0.006:
+            st.info("Possible W / Double Bottom.")
+        if len(shi) >= 2 and shv[-2] > 0 and abs(shv[-2] - shv[-1]) / shv[-2] < 0.006:
+            st.info("Possible M / Double Top.")
+except Exception:
+    st.caption("Pattern chart unavailable.")
+
+st.markdown("-
