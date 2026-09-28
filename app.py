@@ -1,4 +1,4 @@
-# app.py – NIFTY Ultimate Bot (Final Version)
+# app.py – NIFTY Ultimate Bot (Final Version with Detailed Pattern Analysis)
 import logging
 import feedparser
 import numpy as np
@@ -32,7 +32,6 @@ class DataError(Exception):
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_ohlc(symbol, period="5d", interval="5m"):
-    """Fetch OHLC data. Handles missing Volume for indices."""
     try:
         df = yf.Ticker(symbol).history(period=period, interval=interval)
     except Exception as exc:
@@ -41,13 +40,11 @@ def fetch_ohlc(symbol, period="5d", interval="5m"):
     if df is None or df.empty:
         raise DataError(f"no data for {symbol}")
     
-    # Drop rows only if OHLC is missing, NOT Volume (NIFTY index has no volume)
     df = df.dropna(subset=['Open', 'High', 'Low', 'Close'])
     return df
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_3m_data(symbol):
-    """Fetch 5m data and resample to 3m as a fallback for Yahoo's limitations."""
     try:
         df = yf.Ticker(symbol).history(period="5d", interval="5m")
         if df is None or df.empty:
@@ -55,7 +52,6 @@ def fetch_3m_data(symbol):
         
         df = df.dropna(subset=['Open', 'High', 'Low', 'Close'])
         
-        # Resample 5-minute data to 3-minute candles
         df_3m = df.resample('3min').agg({
             'Open': 'first', 'High': 'max', 'Low': 'min', 
             'Close': 'last', 'Volume': 'sum'
@@ -95,19 +91,15 @@ def rsi(s, period=14):
     return 100 - (100 / (1 + rs))
 
 def vwap(df):
-    """Handle missing Volume for indices gracefully."""
     tp = (df["High"] + df["Low"] + df["Close"]) / 3
     v = df["Volume"].replace(0, np.nan)
-    
     if v.isna().all() or v.sum() == 0:
         return tp.expanding().mean()
-        
     return tp.mul(v).groupby(df.index.date).cumsum() / v.groupby(df.index.date).cumsum()
 
 # ---------- ZEBU CALCULATIONS ----------
 
 def pivots(h, l, c):
-    """Zebu Pivot Formulas"""
     p = (h + l + c) / 3
     r1 = 2 * p - l
     s1 = 2 * p - h
@@ -123,7 +115,6 @@ def cpr(h, l, c):
     return max(p, bc), min(p, bc)
 
 def calculate_3m_levels(df):
-    """Calculate X1-X5 based on Zebu 3-min candle logic."""
     df = df.copy()
     df['Date'] = df.index.date
     dates = sorted(df['Date'].unique())
@@ -137,14 +128,12 @@ def calculate_3m_levels(df):
     if prev_day.empty or today.empty:
         return None, None
         
-    # Gap Up Logic
     x1_high = prev_day['High'].iloc[-1]
     x2_high = today['High'].iloc[0]
     x3_up = x2_high - x1_high
     x4_up = x3_up / 2
     x5_up = x1_high - x4_up
     
-    # Gap Down Logic
     x1_low = prev_day['Low'].iloc[-1]
     x2_low = today['Low'].iloc[0]
     x3_down = x2_low - x1_low
@@ -162,53 +151,6 @@ def calculate_3m_levels(df):
         "X5 (Reversal Level X2+X4)": x5_down
     }
     return gap_up, gap_down
-
-def analyze_price_pattern(daily_df):
-    """Analyze High/Low patterns and compare with previous day."""
-    if len(daily_df) < 4:
-        return None
-    
-    recent = daily_df.tail(4)
-    highs = recent['High'].values
-    lows = recent['Low'].values
-    
-    h1, h2, h3 = highs[-3], highs[-2], highs[-1]
-    l1, l2, l3 = lows[-3], lows[-2], lows[-1]
-    
-    # Today's pattern (comparing today vs yesterday)
-    curr_hh = h3 > h2
-    curr_hl = l3 > l2
-    
-    # Previous pattern (comparing yesterday vs day before)
-    prev_hh = h2 > h1
-    prev_hl = l2 > l1
-    
-    def get_label(hh, hl):
-        if hh and hl: return "Uptrend (HH, HL)"
-        if not hh and not hl: return "Downtrend (LH, LL)"
-        if hh and not hl: return "Expanding Volatility (HH, LL)"
-        if not hh and hl: return "Contracting Volatility (LH, HL)"
-        return "Sideways"
-        
-    curr_pattern = get_label(curr_hh, curr_hl)
-    prev_pattern = get_label(prev_hh, prev_hl)
-    
-    comparison = "No Change"
-    if curr_pattern != prev_pattern:
-        if "Uptrend" in prev_pattern and "Downtrend" in curr_pattern:
-            comparison = "⚠️ BEARISH REVERSAL (Uptrend to Downtrend)"
-        elif "Downtrend" in prev_pattern and "Uptrend" in curr_pattern:
-            comparison = "🚀 BULLISH REVERSAL (Downtrend to Uptrend)"
-        else:
-            comparison = f"Shifted from {prev_pattern} to {curr_pattern}"
-            
-    return {
-        "prev_pattern": prev_pattern,
-        "curr_pattern": curr_pattern,
-        "comparison": comparison,
-        "highs": (h1, h2, h3),
-        "lows": (l1, l2, l3)
-    }
 
 def big_player(df, vol_mult=2.5, body_mult=1.5):
     if len(df) < 25:
@@ -296,13 +238,14 @@ except DataError as e:
 
 st.divider()
 
-# 3. PATTERN ANALYSIS (Replaced Chart)
+# 3. DETAILED PATTERN ANALYSIS (UPDATED)
 st.subheader("📊 Today's Market Levels & Pattern Match")
 try:
     daily_df = fetch_daily(NIFTY)
-    if len(daily_df) >= 2:
-        today = daily_df.iloc[-1]
-        yesterday = daily_df.iloc[-2]
+    if len(daily_df) >= 3:
+        d2 = daily_df.iloc[-3]  # Day before yesterday
+        d1 = daily_df.iloc[-2]  # Yesterday
+        today = daily_df.iloc[-1]  # Today
         
         # Display Today's OHLC
         c1, c2, c3, c4 = st.columns(4)
@@ -311,27 +254,55 @@ try:
         c3.metric("Today's Low", f"{today['Low']:,.2f}")
         c4.metric("Current/Close", f"{today['Close']:,.2f}")
         
-        # Pattern Match
-        pattern_data = analyze_price_pattern(daily_df)
-        if pattern_data:
-            st.write("---")
-            st.markdown(f"### 📈 Today's Pattern: **{pattern_data['curr_pattern']}**")
+        st.write("---")
+        
+        # Pattern Logic
+        curr_hh = today['High'] > d1['High']
+        curr_hl = today['Low'] > d1['Low']
+        prev_hh = d1['High'] > d2['High']
+        prev_hl = d1['Low'] > d2['Low']
+        
+        def get_label(hh, hl):
+            if hh and hl: return "Uptrend (HH, HL)"
+            if not hh and not hl: return "Downtrend (LH, LL)"
+            if hh and not hl: return "Expanding Volatility (HH, LL)"
+            if not hh and hl: return "Contracting Volatility (LH, HL)"
+            return "Sideways"
             
-            if pattern_data['comparison'] == "No Change":
-                st.success(f"✅ Today's pattern **matches** the previous pattern: {pattern_data['prev_pattern']}")
-            else:
-                st.warning(f"🔄 Today's pattern **shifted** from previous: {pattern_data['prev_pattern']} ➔ {pattern_data['curr_pattern']}")
-            
-            with st.expander("📋 View High/Low Data Used"):
-                h = pattern_data["highs"]
-                l = pattern_data["lows"]
-                st.write(f"Day -2: High={h[0]:,.1f}, Low={l[0]:,.1f}")
-                st.write(f"Day -1: High={h[1]:,.1f}, Low={l[1]:,.1f}")
-                st.write(f"Today: High={h[2]:,.1f}, Low={l[2]:,.1f}")
+        curr_pattern = get_label(curr_hh, curr_hl)
+        prev_pattern = get_label(prev_hh, prev_hl)
+        
+        st.markdown(f"### 📈 Today's Pattern: **{curr_pattern}**")
+        
+        # Show comparison in detail
+        st.write("**Pattern Logic Check (Today vs Yesterday):**")
+        h_sym = "Higher High (HH)" if curr_hh else "Lower High (LH)"
+        l_sym = "Higher Low (HL)" if curr_hl else "Lower Low (LL)"
+        st.write(f"• High: Today **{today['High']:,.1f}** vs Yesterday **{d1['High']:,.1f}** ➔ {h_sym}")
+        st.write(f"• Low:  Today **{today['Low']:,.1f}** vs Yesterday **{d1['Low']:,.1f}** ➔ {l_sym}")
+        
+        st.write("---")
+        
+        # Actionable Insight
+        if "Downtrend" in curr_pattern:
+            st.error(f"🔻 **Market Implication:** Bearish trend continues. The market is making lower highs and lower lows. Selling on rallies (shorting) is favorable. Wait for the price to reach R1/R2 (Pivot Points) to enter a short trade.")
+        elif "Uptrend" in curr_pattern:
+            st.success(f"🔺 **Market Implication:** Bullish trend continues. The market is making higher highs and higher lows. Buying on dips (long) is favorable. Wait for the price to reach S1/S2 (Pivot Points) to enter a long trade.")
+        elif "Expanding" in curr_pattern:
+            st.warning(f"⚠️ **Market Implication:** High volatility. The market is moving wildly. Avoid trading until a clear direction emerges.")
         else:
-            st.warning("Not enough daily data for pattern analysis.")
+            st.info(f"➡️ **Market Implication:** Consolidation phase. The market is stuck in a range. Wait for a breakout or breakdown.")
+            
+        st.write("---")
+        
+        # Show the previous pattern comparison
+        if curr_pattern == prev_pattern:
+            st.success(f"✅ Today's pattern **matches** the previous pattern: {prev_pattern}")
+        else:
+            st.warning(f"🔄 Today's pattern **shifted** from previous: {prev_pattern} ➔ {curr_pattern}")
+            
     else:
-        st.warning("Not enough daily data.")
+        st.warning("Not enough daily data for pattern analysis.")
 except DataError as e:
     st.error(str(e))
 
