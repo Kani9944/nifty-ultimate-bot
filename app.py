@@ -1,4 +1,4 @@
-# app.py – NIFTY Ultimate Bot (Final Fixed Version)
+# app.py – NIFTY Ultimate Bot (Final Corrected Version)
 import logging
 import feedparser
 import numpy as np
@@ -153,10 +153,10 @@ def calculate_3m_levels(df):
     }
     return gap_up, gap_down
 
-def zigzag_swing_points(df, threshold_pct=0.005):
+def zigzag_swing_points(df, threshold_pct=0.002):
     """
     ZigZag algorithm to find true Swing Highs and Lows.
-    threshold_pct = 0.5% move required to register a new swing (Reduced noise).
+    threshold_pct = 0.2% move required to register a new swing (Balanced).
     """
     if len(df) < 3:
         return pd.DataFrame(), pd.DataFrame()
@@ -221,8 +221,8 @@ def draw_neat_chart(today_df):
         connectgaps=True
     ))
     
-    # Use a larger threshold (0.5%) to avoid false signals
-    swing_highs, swing_lows = zigzag_swing_points(today_df, threshold_pct=0.005)
+    # Use a balanced threshold (0.2%) to capture more swings
+    swing_highs, swing_lows = zigzag_swing_points(today_df, threshold_pct=0.002)
     
     for _, row in swing_highs.iterrows():
         fig.add_annotation(
@@ -243,10 +243,11 @@ def draw_neat_chart(today_df):
         )
     
     fig.update_layout(
-        title="NIFTY Intraday Price Action (ZigZag H = High, L = Low)",
+        # FIXED: Removed the redundant title inside the chart
+        title=None,
         height=500,
         xaxis_rangeslider_visible=False,
-        margin=dict(l=10, r=10, t=50, b=10),
+        margin=dict(l=10, r=10, t=30, b=10),
         yaxis_title="Price",
         plot_bgcolor='white',
         xaxis=dict(
@@ -362,7 +363,7 @@ try:
             st.plotly_chart(fig, use_container_width=True)
             
             st.write("---")
-            st.info("ℹ️ **Chart Explanation:** 'H1, H2...' are the true Swing Highs (Green) and 'L1, L2...' are the true Swing Lows (Red), calculated using the ZigZag algorithm with 0.5% threshold.")
+            st.info("ℹ️ **Chart Explanation:** 'H1, H2...' are the true Swing Highs (Green) and 'L1, L2...' are the true Swing Lows (Red), calculated using the ZigZag algorithm with 0.2% threshold.")
         else:
             st.warning("Not enough intraday data for today.")
     else:
@@ -432,11 +433,16 @@ for sym, dd in data.items():
     if len(dd) < 2:
         continue
     ch = (dd["Close"].iloc[-1] - dd["Close"].iloc[-2]) / dd["Close"].iloc[-2]
+    # FIXED: Ensure Symbol comes first in the dictionary
     rows.append({"Symbol": sym.replace(".NS", ""),
                  "Price": dd["Close"].iloc[-1],
                  "Change %": ch * 100})
 if rows:
-    tbl = pd.DataFrame(rows).sort_values("Change %", ascending=False)
+    tbl = pd.DataFrame(rows)
+    # FIXED: Explicitly reorder columns
+    tbl = tbl[["Symbol", "Price", "Change %"]]
+    tbl = tbl.sort_values("Change %", ascending=False)
+    
     adv = (tbl["Change %"] > 0).sum()
     dec = (tbl["Change %"] < 0).sum()
     
@@ -449,7 +455,6 @@ if rows:
     
     c.metric("Avg Change %", f"{tbl['Change %'].mean():+.2f}%")
     
-    # Apply color to the Change % column in the table
     def color_change(val):
         if val > 0:
             return 'color: green; font-weight: bold'
@@ -464,7 +469,7 @@ else:
 
 st.divider()
 
-# 6. BIG PLAYER (Colored BUY/SELL) - FIXED applymap to map
+# 6. BIG PLAYER (Colored BUY/SELL)
 st.subheader("🐋 Big Player Alert")
 st.caption("Volume spike (≥2.5×) + strong body (≥1.5×) on last completed 5-min candle")
 hits = []
@@ -476,6 +481,9 @@ for sym, dd in data.items():
                      "Price": dd["Close"].iloc[-1]})
 if hits:
     df_hits = pd.DataFrame(hits)
+    # FIXED: Reorder columns and format price to 2 decimals
+    df_hits = df_hits[["Symbol", "Signal", "Price"]]
+    df_hits['Price'] = df_hits['Price'].round(2)
     
     def color_signal(val):
         if val == 'BUY':
@@ -484,7 +492,6 @@ if hits:
             return 'color: red; font-weight: bold'
         return ''
         
-    # FIXED: applymap -> map (for newer Pandas versions)
     st.dataframe(df_hits.style.map(color_signal, subset=['Signal']), 
                  use_container_width=True, hide_index=True)
                  
