@@ -1,4 +1,4 @@
-# app.py – NIFTY Ultimate Bot (Final Polish)
+# app.py – NIFTY Ultimate Bot (All Final Fixes Applied)
 import logging
 import feedparser
 import numpy as np
@@ -121,13 +121,13 @@ def calculate_3m_levels(df):
     dates = sorted(df['Date'].unique())
     
     if len(dates) < 2:
-        return None, None
+        return None, None, None  # Return gap_direction as well
         
     prev_day = df[df['Date'] == dates[-2]]
     today = df[df['Date'] == dates[-1]]
     
     if prev_day.empty or today.empty:
-        return None, None
+        return None, None, None
         
     x1_high = prev_day['High'].iloc[-1]
     x2_high = today['High'].iloc[0]
@@ -151,18 +151,23 @@ def calculate_3m_levels(df):
         "X3 (Difference X2-X1)": x3_down, "X4 (Half of X3)": x4_down, 
         "X5 (Reversal Level X2+X4)": x5_down
     }
-    return gap_up, gap_down
+    
+    # FIX 5: Determine gap direction automatically
+    # If X2 > X1 (today's open high > prev close high) = Gap Up
+    # If X2 < X1 (today's open low < prev close low) = Gap Down
+    gap_direction = "GAP UP" if x2_high > x1_high else "GAP DOWN"
+    
+    return gap_up, gap_down, gap_direction
 
-def zigzag_swing_points(df, threshold_pct=0.001, skip_first_n=6):
+def zigzag_swing_points(df, threshold_pct=0.001, skip_first_n=12):
     """
     ZigZag algorithm with fixes:
-    - skip_first_n=6: Skip the first 6 candles (09:15-09:45) to avoid day open being counted as H1
-    - threshold_pct=0.001 (0.1%): Sensitive enough to catch all swings
+    - skip_first_n=12: Skip first 12 candles (09:15-10:15) to avoid day open
+    - Then remove the FIRST swing high (it's still usually the day open)
     """
     if len(df) < skip_first_n + 3:
         return pd.DataFrame(), pd.DataFrame()
     
-    # FIX: Skip first N candles to avoid day open being counted as H1
     df_trimmed = df.iloc[skip_first_n:]
     
     highs = df_trimmed['High'].values
@@ -208,6 +213,11 @@ def zigzag_swing_points(df, threshold_pct=0.001, skip_first_n=6):
     df_highs = pd.DataFrame(swing_highs)
     df_lows = pd.DataFrame(swing_lows)
     
+    # FIX 6: Remove the FIRST swing high (usually the false one near day open)
+    if not df_highs.empty and len(df_highs) > 1:
+        df_highs = df_highs.iloc[1:].reset_index(drop=True)
+    
+    # Renumber labels H1, H2, H3...
     if not df_highs.empty:
         df_highs['Label'] = [f"H{i+1}" for i in range(len(df_highs))]
     if not df_lows.empty:
@@ -218,17 +228,16 @@ def zigzag_swing_points(df, threshold_pct=0.001, skip_first_n=6):
 def draw_neat_chart(today_df):
     fig = go.Figure()
     
-    # FIX: Darker black line (was 'black', now 'rgba(0,0,0,1)' with width 2)
     fig.add_trace(go.Scatter(
         x=today_df.index, y=today_df['Close'],
         mode='lines', 
-        line=dict(color='rgba(0,0,0,1)', width=2.5),  # Darker & thicker black
+        line=dict(color='rgba(0,0,0,1)', width=2.5),
         name="NIFTY",
         connectgaps=True
     ))
     
-    # FIX: Skip first 6 candles (09:15-09:45) to avoid false H1
-    swing_highs, swing_lows = zigzag_swing_points(today_df, threshold_pct=0.001, skip_first_n=6)
+    # FIX 6: skip_first_n=12 + remove first swing high
+    swing_highs, swing_lows = zigzag_swing_points(today_df, threshold_pct=0.001, skip_first_n=12)
     
     for _, row in swing_highs.iterrows():
         fig.add_annotation(
@@ -378,7 +387,7 @@ try:
             st.plotly_chart(fig, use_container_width=True)
             
             st.write("---")
-            st.info("ℹ️ **Chart Explanation:** 'H1, H2...' are the true Swing Highs (Green) and 'L1, L2...' are the true Swing Lows (Red). First 6 candles skipped to avoid false signals.")
+            st.info("ℹ️ **Chart Explanation:** 'H1, H2...' are the true Swing Highs (Green) and 'L1, L2...' are the true Swing Lows (Red). First 12 candles skipped + first false swing removed.")
         else:
             st.warning("Not enough intraday data for today.")
     else:
@@ -423,24 +432,36 @@ with colB:
     st.subheader("🎯 3-Min Gap Levels (Zebu)")
     try:
         df3 = fetch_3m_data(NIFTY)
-        gap_up, gap_down = calculate_3m_levels(df3)
+        result = calculate_3m_levels(df3)
         
-        if gap_up is None:
+        if result[0] is None:
             st.warning("not enough 3-min data")
         else:
-            tab1, tab2 = st.tabs(["📈 GAP UP", "📉 GAP DOWN"])
-            with tab1:
-                for k, v in gap_up.items():
-                    st.write(f"**{k}**: {v:,.2f}")
-            with tab2:
-                for k, v in gap_down.items():
-                    st.write(f"**{k}**: {v:,.2f}")
+            gap_up, gap_down, gap_direction = result
+            
+            # FIX 5: Auto-detect gap direction and show appropriate tab first
+            if gap_direction == "GAP UP":
+                tab1, tab2 = st.tabs(["📈 GAP UP (Active)", "📉 GAP DOWN"])
+                with tab1:
+                    for k, v in gap_up.items():
+                        st.write(f"**{k}**: {v:,.2f}")
+                with tab2:
+                    for k, v in gap_down.items():
+                        st.write(f"**{k}**: {v:,.2f}")
+            else:
+                tab1, tab2 = st.tabs(["📈 GAP UP", "📉 GAP DOWN (Active)"])
+                with tab1:
+                    for k, v in gap_up.items():
+                        st.write(f"**{k}**: {v:,.2f}")
+                with tab2:
+                    for k, v in gap_down.items():
+                        st.write(f"**{k}**: {v:,.2f}")
     except DataError as e:
         st.error(str(e))
 
 st.divider()
 
-# 5. BREADTH (FIXED: Price to 2 decimals)
+# 5. BREADTH (FIXED: Symbol colored + Price 2 decimals + Change % format)
 st.subheader("🌐 Market Breadth (18 Heavyweights)")
 data = fetch_many(tuple(HEAVYWEIGHTS))
 rows = []
@@ -454,7 +475,6 @@ for sym, dd in data.items():
 if rows:
     tbl = pd.DataFrame(rows)
     tbl = tbl[["Symbol", "Price", "Change %"]]
-    # FIX: Force numeric, then round to 2 decimals
     tbl['Price'] = pd.to_numeric(tbl['Price'], errors='coerce').round(2)
     tbl = tbl.sort_values("Change %", ascending=False)
     
@@ -470,21 +490,23 @@ if rows:
     
     c.metric("Avg Change %", f"{tbl['Change %'].mean():+.2f}%")
     
-    def color_change(val):
-        if val > 0:
-            return 'color: green; font-weight: bold'
-        elif val < 0:
-            return 'color: red; font-weight: bold'
-        return ''
-        
-    st.dataframe(tbl.style.map(color_change, subset=['Change %']), 
-                 use_container_width=True, hide_index=True)
+    # FIX 1 & 4: Color Symbol based on Change % + format numbers
+    def color_symbol_and_change(row):
+        color = 'color: green; font-weight: bold' if row['Change %'] > 0 else 'color: red; font-weight: bold'
+        return [color, '', color]
+    
+    styled = tbl.style.apply(color_symbol_and_change, axis=1).format({
+        'Price': '{:.2f}',
+        'Change %': '{:+.2f}%'
+    })
+    
+    st.dataframe(styled, use_container_width=True, hide_index=True)
 else:
     st.warning("no breadth data")
 
 st.divider()
 
-# 6. BIG PLAYER (FIXED: Price to 2 decimals)
+# 6. BIG PLAYER (FIXED: Symbol colored + Price 2 decimals)
 st.subheader("🐋 Big Player Alert")
 st.caption("Volume spike (≥2.5×) + strong body (≥1.5×) on last completed 5-min candle")
 hits = []
@@ -497,18 +519,20 @@ for sym, dd in data.items():
 if hits:
     df_hits = pd.DataFrame(hits)
     df_hits = df_hits[["Symbol", "Signal", "Price"]]
-    # FIX: Force numeric, then round to 2 decimals
     df_hits['Price'] = pd.to_numeric(df_hits['Price'], errors='coerce').round(2)
     
-    def color_signal(val):
-        if val == 'BUY':
-            return 'color: green; font-weight: bold'
-        elif val == 'SELL':
-            return 'color: red; font-weight: bold'
-        return ''
-        
-    st.dataframe(df_hits.style.map(color_signal, subset=['Signal']), 
-                 use_container_width=True, hide_index=True)
+    # FIX 1: Color Symbol based on Signal + format Price
+    def color_symbol_and_signal(row):
+        if row['Signal'] == 'BUY':
+            return ['color: green; font-weight: bold', 'color: green; font-weight: bold', '']
+        else:
+            return ['color: red; font-weight: bold', 'color: red; font-weight: bold', '']
+    
+    styled_hits = df_hits.style.apply(color_symbol_and_signal, axis=1).format({
+        'Price': '{:.2f}'
+    })
+    
+    st.dataframe(styled_hits, use_container_width=True, hide_index=True)
                  
     b = sum(1 for h in hits if h["Signal"] == "BUY")
     s = len(hits) - b
