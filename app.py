@@ -1,4 +1,4 @@
-# app.py – NIFTY Ultimate Bot (Zebu 3-Min Candle Logic)
+# app.py – NIFTY Ultimate Bot (Fixed 3m Data & Blank Chart)
 import logging
 import feedparser
 import numpy as np
@@ -35,9 +35,34 @@ def fetch_ohlc(symbol, period="5d", interval="5m"):
         df = yf.Ticker(symbol).history(period=period, interval=interval)
     except Exception as exc:
         raise DataError(f"fetch failed for {symbol}: {exc}") from exc
+    
     if df is None or df.empty:
         raise DataError(f"no data for {symbol}")
-    return df.dropna()
+    
+    # FIX: Drop rows only if OHLC is missing, NOT Volume (NIFTY index has no volume)
+    df = df.dropna(subset=['Open', 'High', 'Low', 'Close'])
+    return df
+
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_3m_data(symbol):
+    """Fetch 1m data and resample to 3m (Yahoo doesn't support 3m directly)."""
+    try:
+        df = yf.Ticker(symbol).history(period="5d", interval="1m")
+        if df is None or df.empty:
+            raise DataError(f"no 1m data for {symbol}")
+        
+        df = df.dropna(subset=['Open', 'High', 'Low', 'Close'])
+        
+        # Resample 1-minute data to 3-minute candles
+        df_3m = df.resample('3min').agg({
+            'Open': 'first', 'High': 'max', 'Low': 'min', 
+            'Close': 'last', 'Volume': 'sum'
+        }).dropna(subset=['Open', 'High', 'Low', 'Close'])
+        
+        return df_3m
+    except Exception as exc:
+        log.warning("3m fetch failed for %s: %s", symbol, exc)
+        raise DataError(f"3m data failed for {symbol}")
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_daily(symbol):
@@ -68,6 +93,11 @@ def rsi(s, period=14):
 def vwap(df):
     tp = (df["High"] + df["Low"] + df["Close"]) / 3
     v = df["Volume"].replace(0, np.nan)
+    
+    # FIX: If Volume is entirely missing (NIFTY index), use cumulative average of price
+    if v.isna().all() or v.sum() == 0:
+        return tp.expanding().mean()
+        
     return tp.mul(v).groupby(df.index.date).cumsum() / v.groupby(df.index.date).cumsum()
 
 def pivots(h, l, c):
@@ -84,13 +114,6 @@ def cpr(h, l, c):
     p = (h + l + c) / 3
     bc = (h + l) / 2
     return max(p, bc), min(p, bc)
-
-def atr(df, period=14):
-    hl = df["High"] - df["Low"]
-    hc = (df["High"] - df["Close"].shift()).abs()
-    lc = (df["Low"] - df["Close"].shift()).abs()
-    tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
-    return tr.ewm(alpha=1/period, adjust=False).mean()
 
 def calculate_3m_levels(df):
     """Calculate X1-X5 based on Zebu 3-min candle logic."""
@@ -122,14 +145,61 @@ def calculate_3m_levels(df):
     x5_down = x2_low + x4_down
     
     gap_up = {
-        "X1": x1_high, "X2": x2_high, "X3": x3_up, 
-        "X4": x4_up, "X5": x5_up
+        "X1 (Prev Close 3m High)": x1_high, "X2 (Today Open 3m High)": x2_high, 
+        "X3 (Difference X2-X1)": x3_up, "X4 (Half of X3)": x4_up, 
+        "X5 (Reversal Level X1-X4)": x5_up
     }
     gap_down = {
-        "X1": x1_low, "X2": x2_low, "X3": x3_down, 
-        "X4": x4_down, "X5": x5_down
+        "X1 (Prev Close 3m Low)": x1_low, "X2 (Today Open 3m Low)": x2_low, 
+        "X3 (Difference X2-X1)": x3_down, "X4 (Half of X3)": x4_down, 
+        "X5 (Reversal Level X2+X4)": x5_down
     }
     return gap_up, gap_down
+
+def analyze_price_pattern(daily_df):
+    """Analyze High/Low patterns and compare with previous day."""
+    if len(daily_df) < 4:
+        return None
+    
+    recent = daily_df.tail(4)
+    highs = recent['High'].values
+    lows = recent['Low'].values
+    
+    h1, h2, h3 = highs[-3], highs[-2], highs[-1]
+    l1, l2, l3 = lows[-3], lows[-2], lows[-1]
+    
+    curr_hh = h3 > h2
+    curr_hl = l3 > l2
+    
+    prev_hh = h2 > h1
+    prev_hl = l2 > l1
+    
+    def get_label(hh, hl):
+        if hh and hl: return "Uptrend (HH, HL)"
+        if not hh and not hl: return "Downtrend (LH, LL)"
+        if hh and not hl: return "Expanding Volatility (HH, LL)"
+        if not hh and hl: return "Contracting Volatility (LH, HL)"
+        return "Sideways"
+        
+    curr_pattern = get_label(curr_hh, curr_hl)
+    prev_pattern = get_label(prev_hh, prev_hl)
+    
+    comparison = "No Change"
+    if curr_pattern != prev_pattern:
+        if "Uptrend" in prev_pattern and "Downtrend" in curr_pattern:
+            comparison = "⚠️ BEARISH REVERSAL (Uptrend to Downtrend)"
+        elif "Downtrend" in prev_pattern and "Uptrend" in curr_pattern:
+            comparison = "🚀 BULLISH REVERSAL (Downtrend to Uptrend)"
+        else:
+            comparison = f"Shifted from {prev_pattern} to {curr_pattern}"
+            
+    return {
+        "prev_pattern": prev_pattern,
+        "curr_pattern": curr_pattern,
+        "comparison": comparison,
+        "highs": (h1, h2, h3),
+        "lows": (l1, l2, l3)
+    }
 
 def big_player(df, vol_mult=2.5, body_mult=1.5):
     if len(df) < 25:
@@ -139,7 +209,7 @@ def big_player(df, vol_mult=2.5, body_mult=1.5):
     ref = comp.iloc[-21:-1]
     av = ref["Volume"].mean()
     ab = (ref["Close"] - ref["Open"]).abs().mean()
-    if av == 0 or ab == 0:
+    if av == 0 or ab == 0 or pd.isna(av):
         return None
     body = abs(last["Close"] - last["Open"])
     if last["Volume"] >= vol_mult * av and body >= body_mult * ab:
@@ -215,6 +285,40 @@ except DataError as e:
 
 st.divider()
 
+st.subheader("📊 Price Action Pattern Analysis (High/Low)")
+try:
+    daily_df = fetch_daily(NIFTY)
+    pattern_data = analyze_price_pattern(daily_df)
+    if pattern_data:
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write("**Previous Pattern:**")
+            st.info(pattern_data["prev_pattern"])
+        with col2:
+            st.write("**Current Pattern:**")
+            if "Downtrend" in pattern_data["curr_pattern"] or "Bearish" in pattern_data["curr_pattern"]:
+                st.error(pattern_data["curr_pattern"])
+            elif "Uptrend" in pattern_data["curr_pattern"] or "Bullish" in pattern_data["curr_pattern"]:
+                st.success(pattern_data["curr_pattern"])
+            else:
+                st.warning(pattern_data["curr_pattern"])
+        
+        st.write("---")
+        st.markdown(f"### 🔄 Comparison: {pattern_data['comparison']}")
+        
+        with st.expander("📋 View High/Low Data Used"):
+            h = pattern_data["highs"]
+            l = pattern_data["lows"]
+            st.write(f"Day -2: High={h[0]:,.1f}, Low={l[0]:,.1f}")
+            st.write(f"Day -1: High={h[1]:,.1f}, Low={l[1]:,.1f}")
+            st.write(f"Today: High={h[2]:,.1f}, Low={l[2]:,.1f}")
+    else:
+        st.warning("Not enough daily data for pattern analysis.")
+except DataError as e:
+    st.error(str(e))
+
+st.divider()
+
 colA, colB = st.columns(2)
 with colA:
     st.subheader("📐 Pivot Points")
@@ -238,7 +342,8 @@ with colA:
 with colB:
     st.subheader("🎯 3-Min Gap Levels (Zebu)")
     try:
-        df3 = fetch_ohlc(NIFTY, period="5d", interval="3m")
+        # FIXED: Use fetch_3m_data which resamples 1m data
+        df3 = fetch_3m_data(NIFTY)
         gap_up, gap_down = calculate_3m_levels(df3)
         
         if gap_up is None:
@@ -258,10 +363,12 @@ st.divider()
 
 st.subheader("📈 NIFTY Intraday Chart")
 try:
+    # FIXED: fetch_ohlc now keeps rows even if Volume is NaN
     dfc = fetch_ohlc(NIFTY, period="2d", interval="5m").copy()
     dfc["EMA9"] = ema(dfc["Close"], 9)
     dfc["EMA21"] = ema(dfc["Close"], 21)
     dfc["VWAP"] = vwap(dfc)
+    
     fig = go.Figure()
     fig.add_trace(go.Candlestick(x=dfc.index, open=dfc["Open"],
                                   high=dfc["High"], low=dfc["Low"],
