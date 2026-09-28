@@ -1,4 +1,4 @@
-# app.py – NIFTY Ultimate Bot (Fixed 3m Data & Blank Chart)
+# app.py – NIFTY Ultimate Bot (Final Fixed Version)
 import logging
 import feedparser
 import numpy as np
@@ -29,8 +29,11 @@ HEAVYWEIGHTS = [
 class DataError(Exception):
     pass
 
+# ---------- DATA FETCHING ----------
+
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_ohlc(symbol, period="5d", interval="5m"):
+    """Fetch OHLC data. Handles missing Volume for indices."""
     try:
         df = yf.Ticker(symbol).history(period=period, interval=interval)
     except Exception as exc:
@@ -39,21 +42,21 @@ def fetch_ohlc(symbol, period="5d", interval="5m"):
     if df is None or df.empty:
         raise DataError(f"no data for {symbol}")
     
-    # FIX: Drop rows only if OHLC is missing, NOT Volume (NIFTY index has no volume)
+    # FIX 1: Drop rows only if OHLC is missing, NOT Volume (NIFTY index has no volume)
     df = df.dropna(subset=['Open', 'High', 'Low', 'Close'])
     return df
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def fetch_3m_data(symbol):
-    """Fetch 1m data and resample to 3m (Yahoo doesn't support 3m directly)."""
+    """FIX 2: Fetch 5m data and resample to 3m (Yahoo doesn't support 3m directly)."""
     try:
-        df = yf.Ticker(symbol).history(period="5d", interval="1m")
+        df = yf.Ticker(symbol).history(period="5d", interval="5m")
         if df is None or df.empty:
-            raise DataError(f"no 1m data for {symbol}")
+            raise DataError(f"no 5m data for {symbol}")
         
         df = df.dropna(subset=['Open', 'High', 'Low', 'Close'])
         
-        # Resample 1-minute data to 3-minute candles
+        # Resample 5-minute data to 3-minute candles
         df_3m = df.resample('3min').agg({
             'Open': 'first', 'High': 'max', 'Low': 'min', 
             'Close': 'last', 'Volume': 'sum'
@@ -78,6 +81,8 @@ def fetch_many(symbols, interval="5m"):
             log.warning("skip %s: %s", s, e)
     return out
 
+# ---------- INDICATORS ----------
+
 def ema(s, span):
     return s.ewm(span=span, adjust=False).mean()
 
@@ -91,16 +96,20 @@ def rsi(s, period=14):
     return 100 - (100 / (1 + rs))
 
 def vwap(df):
+    """FIX 3: Handle missing Volume for indices gracefully."""
     tp = (df["High"] + df["Low"] + df["Close"]) / 3
     v = df["Volume"].replace(0, np.nan)
     
-    # FIX: If Volume is entirely missing (NIFTY index), use cumulative average of price
+    # If Volume is entirely missing, use cumulative average of price
     if v.isna().all() or v.sum() == 0:
         return tp.expanding().mean()
         
     return tp.mul(v).groupby(df.index.date).cumsum() / v.groupby(df.index.date).cumsum()
 
+# ---------- ZEBU CALCULATIONS ----------
+
 def pivots(h, l, c):
+    """Zebu Pivot Formulas"""
     p = (h + l + c) / 3
     r1 = 2 * p - l
     s1 = 2 * p - h
@@ -249,6 +258,7 @@ def load_news(limit=6):
 st.title("🇮🇳 NIFTY Ultimate Bot")
 st.caption("Data via Yahoo Finance – may be delayed by up to 15 minutes.")
 
+# 1. MARKET OVERVIEW
 st.subheader("📊 Market Overview")
 c1, c2, c3 = st.columns(3)
 try:
@@ -272,6 +282,7 @@ for col, (lbl, sym) in zip([c2, c3],
 
 st.divider()
 
+# 2. MARKET STRUCTURE
 st.subheader("🧭 Market Structure")
 try:
     df5 = fetch_ohlc(NIFTY, period="2d", interval="5m")
@@ -285,6 +296,7 @@ except DataError as e:
 
 st.divider()
 
+# 3. PATTERN ANALYSIS
 st.subheader("📊 Price Action Pattern Analysis (High/Low)")
 try:
     daily_df = fetch_daily(NIFTY)
@@ -319,9 +331,10 @@ except DataError as e:
 
 st.divider()
 
+# 4. PIVOTS & GAP LEVELS
 colA, colB = st.columns(2)
 with colA:
-    st.subheader("📐 Pivot Points")
+    st.subheader("📐 Pivot Points (Zebu)")
     try:
         dy = fetch_daily(NIFTY)
         if len(dy) < 2:
@@ -342,7 +355,7 @@ with colA:
 with colB:
     st.subheader("🎯 3-Min Gap Levels (Zebu)")
     try:
-        # FIXED: Use fetch_3m_data which resamples 1m data
+        # FIXED: Use fetch_3m_data (resampled)
         df3 = fetch_3m_data(NIFTY)
         gap_up, gap_down = calculate_3m_levels(df3)
         
@@ -361,9 +374,9 @@ with colB:
 
 st.divider()
 
+# 5. CHART
 st.subheader("📈 NIFTY Intraday Chart")
 try:
-    # FIXED: fetch_ohlc now keeps rows even if Volume is NaN
     dfc = fetch_ohlc(NIFTY, period="2d", interval="5m").copy()
     dfc["EMA9"] = ema(dfc["Close"], 9)
     dfc["EMA21"] = ema(dfc["Close"], 21)
@@ -387,6 +400,7 @@ except DataError as e:
 
 st.divider()
 
+# 6. BREADTH
 st.subheader("🌐 Market Breadth (18 Heavyweights)")
 data = fetch_many(tuple(HEAVYWEIGHTS))
 rows = []
@@ -411,6 +425,7 @@ else:
 
 st.divider()
 
+# 7. BIG PLAYER
 st.subheader("🐋 Big Player Alert")
 st.caption("Volume spike (≥2.5×) + strong body (≥1.5×) on last completed 5-min candle")
 hits = []
@@ -430,6 +445,7 @@ else:
 
 st.divider()
 
+# 8. NEWS
 st.subheader("📰 Tamil Financial News")
 news = load_news()
 if news:
