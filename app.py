@@ -1,4 +1,4 @@
-# app.py – NIFTY Ultimate Bot (Live Chart & Pattern Version)
+# app.py – NIFTY Ultimate Bot (SMC & BOS Version)
 import logging
 import feedparser
 import numpy as np
@@ -153,53 +153,48 @@ def calculate_3m_levels(df):
     }
     return gap_up, gap_down
 
-def detect_live_pattern(today_df, yesterday_high, yesterday_low):
-    """Detect live intraday pattern (W, M, Uptrend, Downtrend)."""
-    if len(today_df) < 15:
-        return "Not enough data", None, None, None
-        
-    today_high = today_df['High'].max()
-    today_low = today_df['Low'].min()
-    current_price = today_df['Close'].iloc[-1]
+def detect_smc_patterns(df):
+    """Detect Swing Highs, Swing Lows, BOS and Retest zones."""
+    if len(df) < 20:
+        return None, None, None
     
-    # Find local peaks and troughs (swing highs/lows)
+    df = df.copy()
+    # Identify Swing Highs and Lows (window=5)
     window = 5
-    today_df = today_df.copy()
-    today_df['LocalMin'] = today_df['Low'].rolling(window=window, center=True).min()
-    today_df['LocalMax'] = today_df['High'].rolling(window=window, center=True).max()
+    df['Swing_High'] = df['High'] == df['High'].rolling(window=window, center=True).max()
+    df['Swing_Low'] = df['Low'] == df['Low'].rolling(window=window, center=True).min()
     
-    recent_lows = today_df[today_df['Low'] == today_df['LocalMin']]['Low'].values[-3:]
-    recent_highs = today_df[today_df['High'] == today_df['LocalMax']]['High'].values[-3:]
+    swing_highs = df[df['Swing_High']]['High']
+    swing_lows = df[df['Swing_Low']]['Low']
     
-    pattern = "Sideways / Undefined"
+    if swing_highs.empty or swing_lows.empty:
+        return None, None, None
     
-    # W-Pattern (Double Bottom)
-    if len(recent_lows) >= 2:
-        low1, low2 = recent_lows[-2], recent_lows[-1]
-        if abs(low2 - low1) / low1 < 0.0015:  # 0.15% tolerance
-            pattern = "W-Pattern (Double Bottom)"
-            
-    # M-Pattern (Double Top)
-    if len(recent_highs) >= 2:
-        high1, high2 = recent_highs[-2], recent_highs[-1]
-        if abs(high2 - high1) / high1 < 0.0015:
-            pattern = "M-Pattern (Double Top)"
-            
-    # Uptrend / Downtrend fallback
-    if pattern == "Sideways / Undefined":
-        if today_high > yesterday_high and today_low > yesterday_low:
-            pattern = "Uptrend (HH, HL)"
-        elif today_high < yesterday_high and today_low < yesterday_low:
-            pattern = "Downtrend (LH, LL)"
-        elif today_high > yesterday_high and today_low < yesterday_low:
-            pattern = "Expanding Volatility (HH, LL)"
-        elif today_high < yesterday_high and today_low > yesterday_low:
-            pattern = "Contracting Volatility (LH, HL)"
-            
-    return pattern, today_high, today_low, current_price
+    last_swing_high = swing_highs.iloc[-1]
+    last_swing_low = swing_lows.iloc[-1]
+    
+    # Check for Break of Structure (BOS)
+    current_price = df['Close'].iloc[-1]
+    bos_type = None
+    bos_level = None
+    retest_zone = None
+    
+    # Bullish BOS: Price breaks above last swing high
+    if current_price > last_swing_high:
+        bos_type = "Bullish BOS"
+        bos_level = last_swing_high
+        retest_zone = (last_swing_high, current_price)
+        
+    # Bearish BOS: Price breaks below last swing low
+    elif current_price < last_swing_low:
+        bos_type = "Bearish BOS"
+        bos_level = last_swing_low
+        retest_zone = (current_price, last_swing_low)
+        
+    return bos_type, bos_level, retest_zone
 
-def draw_live_chart(today_df, yesterday_high, yesterday_low, pattern_name):
-    """Draw a live candlestick chart with High/Low and Pattern annotations."""
+def draw_smc_chart(today_df, yesterday_high, yesterday_low, bos_type, bos_level, retest_zone):
+    """Draw live chart with SMC (BOS & Retest) annotations."""
     fig = go.Figure()
     
     # Add Candlestick
@@ -218,27 +213,21 @@ def draw_live_chart(today_df, yesterday_high, yesterday_low, pattern_name):
                   annotation_text=f"Yesterday Low ({yesterday_low:,.1f})",
                   annotation_position="bottom right")
     
-    # Add Today's High and Low lines
-    today_high = today_df['High'].max()
-    today_low = today_df['Low'].min()
-    fig.add_hline(y=today_high, line_color="green",
-                  annotation_text=f"Today High ({today_high:,.1f})",
-                  annotation_position="top left")
-    fig.add_hline(y=today_low, line_color="red",
-                  annotation_text=f"Today Low ({today_low:,.1f})",
-                  annotation_position="bottom left")
-    
-    # Add Pattern Annotation
-    fig.add_annotation(
-        x=today_df.index[len(today_df)//2],
-        y=today_high,
-        text=f"Pattern: {pattern_name}",
-        showarrow=True, arrowhead=2, ax=0, ay=-40,
-        bgcolor="yellow", bordercolor="black"
-    )
+    # Add BOS Line
+    if bos_level:
+        color = "green" if "Bullish" in str(bos_type) else "red"
+        fig.add_hline(y=bos_level, line_dash="dot", line_color=color,
+                      annotation_text=f"{bos_type} ({bos_level:,.1f})",
+                      annotation_position="bottom right")
+                      
+    # Add Retest Zone (Shaded Area)
+    if retest_zone:
+        fig.add_hrect(y0=retest_zone[0], y1=retest_zone[1],
+                      fillcolor="yellow", opacity=0.2, line_width=0,
+                      annotation_text="Retest Zone", annotation_position="top left")
     
     fig.update_layout(
-        title="NIFTY Live Intraday Chart (5-min)",
+        title="NIFTY Live Intraday Chart (SMC Pattern)",
         height=500,
         xaxis_rangeslider_visible=False,
         margin=dict(l=10, r=10, t=50, b=10),
@@ -332,8 +321,8 @@ except DataError as e:
 
 st.divider()
 
-# 3. LIVE INTRADAY PATTERN ANALYSIS (WITH CHART)
-st.subheader("📊 இன்றைய லைவ் மார்க்கெட் பேட்டன் & சார்ட்")
+# 3. LIVE INTRADAY SMC PATTERN ANALYSIS (WITH CHART)
+st.subheader("📊 இன்றைய லைவ் SMC பேட்டன் & சார்ட்")
 try:
     df_intra = fetch_ohlc(NIFTY, period="2d", interval="5m")
     df_intra['Date'] = df_intra.index.date
@@ -347,45 +336,36 @@ try:
             y_high = yesterday_df['High'].max()
             y_low = yesterday_df['Low'].min()
             
-            pattern, t_high, t_low, curr_price = detect_live_pattern(today_df, y_high, y_low)
+            bos_type, bos_level, retest_zone = detect_smc_patterns(today_df)
             
             # Display Today's Live OHLC
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Today's Live High", f"{t_high:,.2f}")
-            c2.metric("Today's Live Low", f"{t_low:,.2f}")
-            c3.metric("Current Price", f"{curr_price:,.2f}")
+            c1.metric("Today's Live High", f"{today_df['High'].max():,.2f}")
+            c2.metric("Today's Live Low", f"{today_df['Low'].min():,.2f}")
+            c3.metric("Current Price", f"{today_df['Close'].iloc[-1]:,.2f}")
             c4.metric("Yesterday's High/Low", f"{y_high:,.0f} / {y_low:,.0f}")
             
             st.write("---")
             
-            # Live Chart
-            fig = draw_live_chart(today_df, y_high, y_low, pattern)
+            # Live Chart with SMC Annotations
+            fig = draw_smc_chart(today_df, y_high, y_low, bos_type, bos_level, retest_zone)
             st.plotly_chart(fig, use_container_width=True)
             
             st.write("---")
-            st.markdown(f"### 📈 Today's Live Pattern: **{pattern}**")
             
-            st.write("**Pattern Logic Check (Today Live vs Yesterday):**")
-            h_sym = "Higher High (HH)" if t_high > y_high else "Lower High (LH)"
-            l_sym = "Higher Low (HL)" if t_low > y_low else "Lower Low (LL)"
-            st.write(f"• High: Today **{t_high:,.1f}** vs Yesterday **{y_high:,.1f}** ➔ {h_sym}")
-            st.write(f"• Low:  Today **{t_low:,.1f}** vs Yesterday **{y_low:,.1f}** ➔ {l_sym}")
-            
-            st.write("---")
-            
-            # Actionable Insight
-            if "W-Pattern" in pattern:
-                st.success(f"🚀 **Market Implication:** W-Pattern (Double Bottom) detected! The market is showing a strong reversal signal. A breakout above the recent high could lead to a massive upward move. **Long (Buy) positions are favorable.**")
-            elif "M-Pattern" in pattern:
-                st.error(f"🔻 **Market Implication:** M-Pattern (Double Top) detected! The market is showing a strong reversal signal. A breakdown below the recent low could lead to a massive downward move. **Short (Sell) positions are favorable.**")
-            elif "Downtrend" in pattern:
-                st.error(f"🔻 **Market Implication:** Bearish trend continues. The market is making lower highs and lower lows. Selling on rallies (shorting) is favorable. Wait for the price to reach R1/R2 (Pivot Points) to enter a short trade.")
-            elif "Uptrend" in pattern:
-                st.success(f"🔺 **Market Implication:** Bullish trend continues. The market is making higher highs and higher lows. Buying on dips (long) is favorable. Wait for the price to reach S1/S2 (Pivot Points) to enter a long trade.")
-            elif "Expanding" in pattern:
-                st.warning(f"⚠️ **Market Implication:** High volatility. The market is moving wildly. Avoid trading until a clear direction emerges.")
+            if bos_type:
+                st.markdown(f"### 📈 Detected Pattern: **{bos_type}**")
+                st.write(f"**Break Level:** {bos_level:,.2f}")
+                if retest_zone:
+                    st.info(f"🎯 **Retest Zone:** {retest_zone[0]:,.2f} - {retest_zone[1]:,.2f}. Wait for price to come back to this zone to enter a trade.")
+                
+                if "Bullish" in bos_type:
+                    st.success("🚀 **Market Implication:** Bullish Break of Structure (BOS) detected! The market has broken above its recent high. Look for a pullback (Retest) to the broken level to enter a **Long (Buy)** position.")
+                else:
+                    st.error("🔻 **Market Implication:** Bearish Break of Structure (BOS) detected! The market has broken below its recent low. Look for a pullback (Retest) to the broken level to enter a **Short (Sell)** position.")
             else:
-                st.info(f"➡️ **Market Implication:** Consolidation phase. The market is stuck in a range. Wait for a breakout or breakdown.")
+                st.info("➡️ **No clear Break of Structure (BOS) detected yet.** The market is currently ranging or consolidating. Wait for a clear break above the last swing high or below the last swing low.")
+            
         else:
             st.warning("Not enough intraday data for today.")
     else:
