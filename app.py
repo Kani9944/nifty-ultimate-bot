@@ -1,4 +1,4 @@
-# app.py – NIFTY Ultimate Bot (All Final Fixes Applied)
+# app.py – NIFTY Ultimate Bot (Final Production-Ready Version)
 import logging
 import feedparser
 import numpy as np
@@ -29,6 +29,17 @@ HEAVYWEIGHTS = [
 class DataError(Exception):
     pass
 
+# ---------- TIMEZONE HELPER ----------
+
+def to_ist(df):
+    """Convert DataFrame index to IST timezone."""
+    df = df.copy()
+    if df.index.tz is None:
+        df.index = df.index.tz_localize("Asia/Kolkata")
+    else:
+        df.index = df.index.tz_convert("Asia/Kolkata")
+    return df
+
 # ---------- DATA FETCHING ----------
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -44,24 +55,10 @@ def fetch_ohlc(symbol, period="5d", interval="5m"):
     df = df.dropna(subset=['Open', 'High', 'Low', 'Close'])
     return df
 
-@st.cache_data(ttl=300, show_spinner=False)
-def fetch_3m_data(symbol):
-    try:
-        df = yf.Ticker(symbol).history(period="5d", interval="5m")
-        if df is None or df.empty:
-            raise DataError(f"no 5m data for {symbol}")
-        
-        df = df.dropna(subset=['Open', 'High', 'Low', 'Close'])
-        
-        df_3m = df.resample('3min').agg({
-            'Open': 'first', 'High': 'max', 'Low': 'min', 
-            'Close': 'last', 'Volume': 'sum'
-        }).dropna(subset=['Open', 'High', 'Low', 'Close'])
-        
-        return df_3m
-    except Exception as exc:
-        log.warning("3m fetch failed for %s: %s", symbol, exc)
-        raise DataError(f"3m data failed for {symbol}")
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_5m_data(symbol):
+    """Fetch native 5-minute data (no resampling)."""
+    return fetch_ohlc(symbol, period="5d", interval="5m")
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_daily(symbol):
@@ -92,11 +89,18 @@ def rsi(s, period=14):
     return 100 - (100 / (1 + rs))
 
 def vwap(df):
+    """VWAP with daily reset. Returns NaN if volume is not available."""
     tp = (df["High"] + df["Low"] + df["Close"]) / 3
-    v = df["Volume"].replace(0, np.nan)
-    if v.isna().all() or v.sum() == 0:
-        return tp.expanding().mean()
-    return tp.mul(v).groupby(df.index.date).cumsum() / v.groupby(df.index.date).cumsum()
+    volume = df["Volume"].fillna(0)
+    
+    if volume.sum() <= 0:
+        return pd.Series(np.nan, index=df.index)
+    
+    session = pd.Series(df.index.date, index=df.index)
+    cumulative_pv = (tp * volume).groupby(session).cumsum()
+    cumulative_volume = volume.groupby(session).cumsum()
+    
+    return cumulative_pv / cumulative_volume.replace(0, np.nan)
 
 # ---------- ZEBU CALCULATIONS ----------
 
@@ -115,13 +119,17 @@ def cpr(h, l, c):
     bc = (h + l) / 2
     return max(p, bc), min(p, bc)
 
-def calculate_3m_levels(df):
-    df = df.copy()
+def calculate_5m_gap_levels(df):
+    """
+    Calculate X1-X5 based on Zebu 5-min candle logic.
+    Uses native 5-minute data (not resampled 3-minute).
+    """
+    df = to_ist(df)
     df['Date'] = df.index.date
     dates = sorted(df['Date'].unique())
     
     if len(dates) < 2:
-        return None, None, None  # Return gap_direction as well
+        return None, None, None
         
     prev_day = df[df['Date'] == dates[-2]]
     today = df[df['Date'] == dates[-1]]
@@ -142,138 +150,159 @@ def calculate_3m_levels(df):
     x5_down = x2_low + x4_down
     
     gap_up = {
-        "X1 (Prev Close 3m High)": x1_high, "X2 (Today Open 3m High)": x2_high, 
+        "X1 (Prev Close 5m High)": x1_high, "X2 (Today Open 5m High)": x2_high, 
         "X3 (Difference X2-X1)": x3_up, "X4 (Half of X3)": x4_up, 
         "X5 (Reversal Level X1-X4)": x5_up
     }
     gap_down = {
-        "X1 (Prev Close 3m Low)": x1_low, "X2 (Today Open 3m Low)": x2_low, 
+        "X1 (Prev Close 5m Low)": x1_low, "X2 (Today Open 5m Low)": x2_low, 
         "X3 (Difference X2-X1)": x3_down, "X4 (Half of X3)": x4_down, 
         "X5 (Reversal Level X2+X4)": x5_down
     }
     
-    # FIX 5: Determine gap direction automatically
-    # If X2 > X1 (today's open high > prev close high) = Gap Up
-    # If X2 < X1 (today's open low < prev close low) = Gap Down
-    gap_direction = "GAP UP" if x2_high > x1_high else "GAP DOWN"
+    # FIX: Proper gap direction (Open vs Prev Close)
+    prev_close = prev_day['Close'].iloc[-1]
+    today_open = today['Open'].iloc[0]
+    
+    if today_open > prev_close:
+        gap_direction = "GAP UP"
+    elif today_open < prev_close:
+        gap_direction = "GAP DOWN"
+    else:
+        gap_direction = "NO GAP"
     
     return gap_up, gap_down, gap_direction
 
-def zigzag_swing_points(df, threshold_pct=0.001, skip_first_n=12):
+def zigzag_swing_points(df, threshold_pct=0.0015):
     """
-    ZigZag algorithm with fixes:
-    - skip_first_n=12: Skip first 12 candles (09:15-10:15) to avoid day open
-    - Then remove the FIRST swing high (it's still usually the day open)
+    ZigZag algorithm (production version):
+    - Uses adaptive threshold (0.15%)
+    - Does NOT append unconfirmed last pivot
+    - Does NOT artificially remove first swing
     """
-    if len(df) < skip_first_n + 3:
+    if len(df) < 4:
         return pd.DataFrame(), pd.DataFrame()
-    
-    df_trimmed = df.iloc[skip_first_n:]
-    
-    highs = df_trimmed['High'].values
-    lows = df_trimmed['Low'].values
-    indices = df_trimmed.index
-    
+
+    highs = df["High"].to_numpy()
+    lows = df["Low"].to_numpy()
+    indices = df.index
+
     swing_highs = []
     swing_lows = []
-    
-    last_pivot_type = 'H'
-    last_pivot_price = highs[0]
-    last_pivot_idx = indices[0]
-    
-    for i in range(1, len(df_trimmed)):
-        curr_high = highs[i]
-        curr_low = lows[i]
-        curr_idx = indices[i]
-        
-        if last_pivot_type == 'H':
-            if curr_high > last_pivot_price:
-                last_pivot_price = curr_high
-                last_pivot_idx = curr_idx
-            elif curr_low < last_pivot_price * (1 - threshold_pct):
-                swing_highs.append({'Index': last_pivot_idx, 'Price': last_pivot_price})
-                last_pivot_type = 'L'
-                last_pivot_price = curr_low
-                last_pivot_idx = curr_idx
-        else:
-            if curr_low < last_pivot_price:
-                last_pivot_price = curr_low
-                last_pivot_idx = curr_idx
-            elif curr_high > last_pivot_price * (1 + threshold_pct):
-                swing_lows.append({'Index': last_pivot_idx, 'Price': last_pivot_price})
-                last_pivot_type = 'H'
-                last_pivot_price = curr_high
-                last_pivot_idx = curr_idx
 
-    if last_pivot_type == 'H':
-        swing_highs.append({'Index': last_pivot_idx, 'Price': last_pivot_price})
-    else:
-        swing_lows.append({'Index': last_pivot_idx, 'Price': last_pivot_price})
-        
+    pivot_type = "H"
+    pivot_price = highs[0]
+    pivot_index = indices[0]
+
+    for i in range(1, len(df)):
+        high = highs[i]
+        low = lows[i]
+        index = indices[i]
+
+        if pivot_type == "H":
+            if high >= pivot_price:
+                pivot_price = high
+                pivot_index = index
+            elif low <= pivot_price * (1 - threshold_pct):
+                swing_highs.append({"Index": pivot_index, "Price": pivot_price})
+                pivot_type = "L"
+                pivot_price = low
+                pivot_index = index
+        else:
+            if low <= pivot_price:
+                pivot_price = low
+                pivot_index = index
+            elif high >= pivot_price * (1 + threshold_pct):
+                swing_lows.append({"Index": pivot_index, "Price": pivot_price})
+                pivot_type = "H"
+                pivot_price = high
+                pivot_index = index
+
     df_highs = pd.DataFrame(swing_highs)
     df_lows = pd.DataFrame(swing_lows)
-    
-    # FIX 6: Remove the FIRST swing high (usually the false one near day open)
-    if not df_highs.empty and len(df_highs) > 1:
-        df_highs = df_highs.iloc[1:].reset_index(drop=True)
-    
-    # Renumber labels H1, H2, H3...
+
     if not df_highs.empty:
-        df_highs['Label'] = [f"H{i+1}" for i in range(len(df_highs))]
+        df_highs["Label"] = [f"H{i + 1}" for i in range(len(df_highs))]
     if not df_lows.empty:
-        df_lows['Label'] = [f"L{i+1}" for i in range(len(df_lows))]
-        
+        df_lows["Label"] = [f"L{i + 1}" for i in range(len(df_lows))]
+
     return df_highs, df_lows
 
 def draw_neat_chart(today_df):
+    """
+    Draw NIFTY intraday chart with confirmed ZigZag swings only.
+    - Live (incomplete) last candle is EXCLUDED from swing calculation
+    - Only 10:15-15:25 IST data is used for swing calculation
+    - No rangebreaks (since we only pass session data)
+    """
     fig = go.Figure()
-    
+
+    # Price line (use full data, including live candle)
     fig.add_trace(go.Scatter(
-        x=today_df.index, y=today_df['Close'],
-        mode='lines', 
-        line=dict(color='rgba(0,0,0,1)', width=2.5),
+        x=today_df.index,
+        y=today_df["Close"],
+        mode="lines",
         name="NIFTY",
-        connectgaps=True
+        line=dict(color="black", width=2),
+        connectgaps=False,
     ))
+
+    # FIX: Exclude last (incomplete) candle from swing calculation
+    confirmed = today_df.iloc[:-1].copy()
     
-    # FIX 6: skip_first_n=12 + remove first swing high
-    swing_highs, swing_lows = zigzag_swing_points(today_df, threshold_pct=0.001, skip_first_n=12)
+    # FIX: Filter by time (10:15-15:25 IST) instead of candle count
+    swing_source = confirmed.between_time("10:15", "15:25")
     
+    swing_highs, swing_lows = zigzag_swing_points(
+        swing_source,
+        threshold_pct=0.0015,
+    )
+
     for _, row in swing_highs.iterrows():
         fig.add_annotation(
-            x=row['Index'], y=row['Price'],
-            text=row['Label'],
-            showarrow=False,
-            yshift=18,
-            font=dict(color="green", size=14, family="Arial Black")
+            x=row["Index"],
+            y=row["Price"],
+            text=row["Label"],
+            showarrow=True,
+            arrowhead=2,
+            ax=0,
+            ay=-28,
+            font=dict(color="green", size=12),
         )
-        
+
     for _, row in swing_lows.iterrows():
         fig.add_annotation(
-            x=row['Index'], y=row['Price'],
-            text=row['Label'],
-            showarrow=False,
-            yshift=-18,
-            font=dict(color="red", size=14, family="Arial Black")
+            x=row["Index"],
+            y=row["Price"],
+            text=row["Label"],
+            showarrow=True,
+            arrowhead=2,
+            ax=0,
+            ay=28,
+            font=dict(color="red", size=12),
         )
-    
+
     fig.update_layout(
-        title=None,
         height=500,
-        xaxis_rangeslider_visible=False,
-        margin=dict(l=10, r=10, t=30, b=10),
-        yaxis_title="Price",
-        plot_bgcolor='white',
+        margin=dict(l=10, r=10, t=20, b=10),
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        hovermode="x unified",
+        showlegend=False,
         xaxis=dict(
-            showgrid=True, 
-            gridcolor='lightgray',
-            rangebreaks=[
-                dict(bounds=["sat", "mon"]),
-                dict(bounds=[15.5, 9.25], pattern="hour")
-            ]
+            type="date",
+            showgrid=True,
+            gridcolor="#E5E7EB",
+            tickformat="%H:%M",
         ),
-        yaxis=dict(showgrid=True, gridcolor='lightgray')
+        yaxis=dict(
+            title="Price",
+            showgrid=True,
+            gridcolor="#E5E7EB",
+            fixedrange=False,
+        ),
     )
+
     return fig
 
 def big_player(df, vol_mult=2.5, body_mult=1.5):
@@ -291,20 +320,25 @@ def big_player(df, vol_mult=2.5, body_mult=1.5):
         return "BUY" if last["Close"] > last["Open"] else "SELL"
     return None
 
-def structure(df):
-    c = df["Close"]
+def structure(session_df):
+    """Market structure using only current session data."""
+    if len(session_df) < 25:
+        return "Insufficient Data", np.nan, np.nan, np.nan, np.nan, np.nan
+    
+    c = session_df["Close"]
     price = c.iloc[-1]
-    vw = vwap(df).iloc[-1]
+    vw = vwap(session_df).iloc[-1]
     e9 = ema(c, 9).iloc[-1]
     e21 = ema(c, 21).iloc[-1]
     r = rsi(c).iloc[-1]
+    
     if price > vw and e9 > e21 and r > 50:
         return "Bullish", price, vw, e9, e21, r
     if price < vw and e9 < e21 and r < 50:
         return "Bearish", price, vw, e9, e21, r
     return "Mixed", price, vw, e9, e21, r
 
-@st.cache_data(ttl=180, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def load_news(limit=6):
     feeds = [
         "https://www.dinamani.com/rss/business.xml",
@@ -338,7 +372,7 @@ st.caption("Data via Yahoo Finance – may be delayed by up to 15 minutes.")
 st.subheader("📊 Market Overview")
 c1, c2, c3 = st.columns(3)
 try:
-    n = fetch_ohlc(NIFTY)
+    n = to_ist(fetch_ohlc(NIFTY))
     spot = n["Close"].iloc[-1]
     prev = n["Close"].iloc[-2]
     c1.metric("NIFTY 50", f"{spot:,.2f}",
@@ -349,7 +383,7 @@ except DataError as e:
 for col, (lbl, sym) in zip([c2, c3],
                            [("Bank Nifty", BANKNIFTY), ("India VIX", VIX)]):
     try:
-        d = fetch_ohlc(sym)
+        d = to_ist(fetch_ohlc(sym))
         v = d["Close"].iloc[-1]
         p = d["Close"].iloc[-2]
         col.metric(lbl, f"{v:,.2f}", f"{v-p:+.2f}")
@@ -358,51 +392,61 @@ for col, (lbl, sym) in zip([c2, c3],
 
 st.divider()
 
-# 2. MARKET STRUCTURE
-st.subheader("🧭 Market Structure")
+# 2. MARKET STRUCTURE (Intraday-only)
+st.subheader("🧭 Market Structure (Intraday)")
 try:
-    df5 = fetch_ohlc(NIFTY, period="2d", interval="5m")
-    verdict, price, vw, e9, e21, r = structure(df5)
-    icon = {"Bullish": "🟢", "Bearish": "🔴", "Mixed": "🟡"}[verdict]
-    st.markdown(f"### {icon} {verdict}")
-    st.write(f"Price {price:,.1f} | VWAP {vw:,.1f} | "
-             f"EMA9 {e9:,.1f} | EMA21 {e21:,.1f} | RSI {r:.1f}")
+    df5 = to_ist(fetch_ohlc(NIFTY, period="5d", interval="5m"))
+    latest_trade_date = df5.index[-1].date()
+    session_df = df5[df5.index.date == latest_trade_date].between_time("09:15", "15:30")
+    
+    verdict, price, vw, e9, e21, r = structure(session_df)
+    if verdict == "Insufficient Data":
+        st.info("Not enough candles for structure analysis yet.")
+    else:
+        icon = {"Bullish": "🟢", "Bearish": "🔴", "Mixed": "🟡"}[verdict]
+        st.markdown(f"### {icon} {verdict}")
+        st.write(f"Price {price:,.1f} | VWAP {vw:,.1f} | "
+                 f"EMA9 {e9:,.1f} | EMA21 {e21:,.1f} | RSI {r:.1f}")
 except DataError as e:
     st.error(str(e))
 
 st.divider()
 
-# 3. LIVE NEAT CHART WITH ZIGZAG H/L
+# 3. LIVE NEAT CHART WITH ZIGZAG H/L (Production Version)
 st.subheader("📈 NIFTY Intraday Chart (ZigZag H = High, L = Low)")
 try:
-    df_intra = fetch_ohlc(NIFTY, period="2d", interval="5m")
-    df_intra['Date'] = df_intra.index.date
-    dates = sorted(df_intra['Date'].unique())
+    df_intra = to_ist(fetch_ohlc(NIFTY, period="5d", interval="5m"))
+    latest_trade_date = df_intra.index[-1].date()
     
-    if len(dates) >= 2:
-        today_df = df_intra[df_intra['Date'] == dates[-1]]
-        
-        if not today_df.empty:
-            fig = draw_neat_chart(today_df)
-            st.plotly_chart(fig, use_container_width=True)
-            
-            st.write("---")
-            st.info("ℹ️ **Chart Explanation:** 'H1, H2...' are the true Swing Highs (Green) and 'L1, L2...' are the true Swing Lows (Red). First 12 candles skipped + first false swing removed.")
-        else:
-            st.warning("Not enough intraday data for today.")
+    today_df = df_intra[
+        df_intra.index.date == latest_trade_date
+    ].between_time("09:15", "15:30").copy()
+    
+    if len(today_df) < 5:
+        st.warning("Insufficient intraday candles for the latest session.")
     else:
-        st.warning("Not enough daily data to compare.")
+        fig = draw_neat_chart(today_df)
+        st.plotly_chart(
+            fig,
+            use_container_width=True,
+            config={"displaylogo": False},
+        )
+        st.caption(
+            "Line: current NIFTY price. "
+            "H/L labels: confirmed ZigZag swings only; "
+            "latest forming candle is excluded from swing calculation."
+        )
 except DataError as e:
     st.error(str(e))
 
 st.divider()
 
-# 4. PIVOTS & GAP LEVELS (Colored Call/Put)
+# 4. PIVOTS & GAP LEVELS
 colA, colB = st.columns(2)
 with colA:
     st.subheader("📐 Pivot Points (Zebu)")
     try:
-        dy = fetch_daily(NIFTY)
+        dy = to_ist(fetch_daily(NIFTY))
         if len(dy) < 2:
             st.warning("not enough daily candles")
         else:
@@ -429,17 +473,16 @@ with colA:
         st.error(str(e))
 
 with colB:
-    st.subheader("🎯 3-Min Gap Levels (Zebu)")
+    st.subheader("🎯 5-Min Gap Levels (Zebu)")
     try:
-        df3 = fetch_3m_data(NIFTY)
-        result = calculate_3m_levels(df3)
+        df5 = fetch_5m_data(NIFTY)
+        result = calculate_5m_gap_levels(df5)
         
         if result[0] is None:
-            st.warning("not enough 3-min data")
+            st.warning("not enough 5-min data")
         else:
             gap_up, gap_down, gap_direction = result
             
-            # FIX 5: Auto-detect gap direction and show appropriate tab first
             if gap_direction == "GAP UP":
                 tab1, tab2 = st.tabs(["📈 GAP UP (Active)", "📉 GAP DOWN"])
                 with tab1:
@@ -448,7 +491,7 @@ with colB:
                 with tab2:
                     for k, v in gap_down.items():
                         st.write(f"**{k}**: {v:,.2f}")
-            else:
+            elif gap_direction == "GAP DOWN":
                 tab1, tab2 = st.tabs(["📈 GAP UP", "📉 GAP DOWN (Active)"])
                 with tab1:
                     for k, v in gap_up.items():
@@ -456,12 +499,14 @@ with colB:
                 with tab2:
                     for k, v in gap_down.items():
                         st.write(f"**{k}**: {v:,.2f}")
+            else:
+                st.info("No gap detected.")
     except DataError as e:
         st.error(str(e))
 
 st.divider()
 
-# 5. BREADTH (FIXED: Symbol colored + Price 2 decimals + Change % format)
+# 5. BREADTH
 st.subheader("🌐 Market Breadth (18 Heavyweights)")
 data = fetch_many(tuple(HEAVYWEIGHTS))
 rows = []
@@ -490,7 +535,6 @@ if rows:
     
     c.metric("Avg Change %", f"{tbl['Change %'].mean():+.2f}%")
     
-    # FIX 1 & 4: Color Symbol based on Change % + format numbers
     def color_symbol_and_change(row):
         color = 'color: green; font-weight: bold' if row['Change %'] > 0 else 'color: red; font-weight: bold'
         return [color, '', color]
@@ -506,7 +550,7 @@ else:
 
 st.divider()
 
-# 6. BIG PLAYER (FIXED: Symbol colored + Price 2 decimals)
+# 6. BIG PLAYER
 st.subheader("🐋 Big Player Alert")
 st.caption("Volume spike (≥2.5×) + strong body (≥1.5×) on last completed 5-min candle")
 hits = []
@@ -521,7 +565,6 @@ if hits:
     df_hits = df_hits[["Symbol", "Signal", "Price"]]
     df_hits['Price'] = pd.to_numeric(df_hits['Price'], errors='coerce').round(2)
     
-    # FIX 1: Color Symbol based on Signal + format Price
     def color_symbol_and_signal(row):
         if row['Signal'] == 'BUY':
             return ['color: green; font-weight: bold', 'color: green; font-weight: bold', '']
