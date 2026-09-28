@@ -1,4 +1,4 @@
-# app.py – NIFTY Ultimate Bot (Colored Pivots & Sequential H/L Chart)
+# app.py – NIFTY Ultimate Bot (Final Version with ZigZag H/L & Full Colors)
 import logging
 import feedparser
 import numpy as np
@@ -153,63 +153,110 @@ def calculate_3m_levels(df):
     }
     return gap_up, gap_down
 
-def detect_swing_points(df):
-    """Identify Swing Highs (H1, H2...) and Swing Lows (L1, L2...) sequentially."""
-    if len(df) < 10:
+def zigzag_swing_points(df, threshold_pct=0.0015):
+    """
+    ZigZag algorithm to find true Swing Highs and Lows.
+    threshold_pct = 0.15% move required to register a new swing.
+    """
+    if len(df) < 3:
         return pd.DataFrame(), pd.DataFrame()
+        
+    highs = df['High'].values
+    lows = df['Low'].values
+    indices = df.index
     
-    df = df.copy()
-    window = 5
-    df['Swing_High'] = df['High'] == df['High'].rolling(window=window, center=True).max()
-    df['Swing_Low'] = df['Low'] == df['Low'].rolling(window=window, center=True).min()
+    swing_highs = []
+    swing_lows = []
     
-    swing_highs = df[df['Swing_High']].copy()
-    swing_lows = df[df['Swing_Low']].copy()
+    last_pivot_type = None
+    last_pivot_price = None
+    last_pivot_idx = None
     
-    # Assign sequential labels: H1, H2, H3... and L1, L2, L3...
-    swing_highs['Label'] = [f"H{i+1}" for i in range(len(swing_highs))]
-    swing_lows['Label'] = [f"L{i+1}" for i in range(len(swing_lows))]
+    # Initialize
+    last_pivot_price = highs[0]
+    last_pivot_idx = indices[0]
+    last_pivot_type = 'H'
     
-    return swing_highs, swing_lows
+    for i in range(1, len(df)):
+        curr_high = highs[i]
+        curr_low = lows[i]
+        curr_idx = indices[i]
+        
+        if last_pivot_type == 'H':
+            if curr_high > last_pivot_price:
+                last_pivot_price = curr_high
+                last_pivot_idx = curr_idx
+            elif curr_low < last_pivot_price * (1 - threshold_pct):
+                # Confirmed a swing high
+                swing_highs.append({'Index': last_pivot_idx, 'Price': last_pivot_price})
+                last_pivot_type = 'L'
+                last_pivot_price = curr_low
+                last_pivot_idx = curr_idx
+        else: # last_pivot_type == 'L'
+            if curr_low < last_pivot_price:
+                last_pivot_price = curr_low
+                last_pivot_idx = curr_idx
+            elif curr_high > last_pivot_price * (1 + threshold_pct):
+                # Confirmed a swing low
+                swing_lows.append({'Index': last_pivot_idx, 'Price': last_pivot_price})
+                last_pivot_type = 'H'
+                last_pivot_price = curr_high
+                last_pivot_idx = curr_idx
+
+    # Add the last pivot if it's valid
+    if last_pivot_type == 'H':
+        swing_highs.append({'Index': last_pivot_idx, 'Price': last_pivot_price})
+    else:
+        swing_lows.append({'Index': last_pivot_idx, 'Price': last_pivot_price})
+        
+    df_highs = pd.DataFrame(swing_highs)
+    df_lows = pd.DataFrame(swing_lows)
+    
+    # Assign sequential labels H1, H2... and L1, L2...
+    if not df_highs.empty:
+        df_highs['Label'] = [f"H{i+1}" for i in range(len(df_highs))]
+    if not df_lows.empty:
+        df_lows['Label'] = [f"L{i+1}" for i in range(len(df_lows))]
+        
+    return df_highs, df_lows
 
 def draw_neat_chart(today_df):
-    """Draw a neat, continuous chart with 'H' and 'L' annotations."""
+    """Draw a neat chart with ZigZag H1, H2 and L1, L2 annotations."""
     fig = go.Figure()
     
-    # Plot the price as a line with connectgaps=True to avoid breaks
+    # Plot the price as a line
     fig.add_trace(go.Scatter(
         x=today_df.index, y=today_df['Close'],
         mode='lines', line=dict(color='black', width=1.5),
         name="NIFTY",
-        connectgaps=True  # <--- THIS FIXES THE BROKEN LINE
+        connectgaps=True
     ))
     
-    # Detect Swing Highs and Lows
-    swing_highs, swing_lows = detect_swing_points(today_df)
+    # Detect True Swing Highs and Lows using ZigZag
+    swing_highs, swing_lows = zigzag_swing_points(today_df, threshold_pct=0.0015)
     
-    # Add 'H' annotations for Swing Highs (GREEN)
+    # Add 'H1, H2...' annotations for Swing Highs (GREEN)
     for _, row in swing_highs.iterrows():
         fig.add_annotation(
-            x=row.name, y=row['High'],
+            x=row['Index'], y=row['Price'],
             text=row['Label'],
             showarrow=False,
-            yshift=15,
+            yshift=18,
             font=dict(color="green", size=14, family="Arial Black")
         )
         
-    # Add 'L' annotations for Swing Lows (RED)
+    # Add 'L1, L2...' annotations for Swing Lows (RED)
     for _, row in swing_lows.iterrows():
         fig.add_annotation(
-            x=row.name, y=row['Low'],
+            x=row['Index'], y=row['Price'],
             text=row['Label'],
             showarrow=False,
-            yshift=-15,
+            yshift=-18,
             font=dict(color="red", size=14, family="Arial Black")
         )
     
-    # Update layout for a neat, gap-less look
     fig.update_layout(
-        title="NIFTY Intraday Price Action (H = High, L = Low)",
+        title="NIFTY Intraday Price Action (ZigZag H = High, L = Low)",
         height=500,
         xaxis_rangeslider_visible=False,
         margin=dict(l=10, r=10, t=50, b=10),
@@ -219,8 +266,8 @@ def draw_neat_chart(today_df):
             showgrid=True, 
             gridcolor='lightgray',
             rangebreaks=[
-                dict(bounds=["sat", "mon"]), # Hide weekends
-                dict(bounds=[15.5, 9.25], pattern="hour") # Hide non-trading hours
+                dict(bounds=["sat", "mon"]),
+                dict(bounds=[15.5, 9.25], pattern="hour")
             ]
         ),
         yaxis=dict(showgrid=True, gridcolor='lightgray')
@@ -313,8 +360,8 @@ except DataError as e:
 
 st.divider()
 
-# 3. LIVE NEAT CHART WITH H/L (Sequential & Colored)
-st.subheader("📈 NIFTY Intraday Chart (H = High, L = Low)")
+# 3. LIVE NEAT CHART WITH ZIGZAG H/L
+st.subheader("📈 NIFTY Intraday Chart (ZigZag H = High, L = Low)")
 try:
     df_intra = fetch_ohlc(NIFTY, period="2d", interval="5m")
     df_intra['Date'] = df_intra.index.date
@@ -328,7 +375,7 @@ try:
             st.plotly_chart(fig, use_container_width=True)
             
             st.write("---")
-            st.info("ℹ️ **Chart Explanation:** 'H1, H2, H3...' are sequential Swing Highs (Green) and 'L1, L2, L3...' are sequential Swing Lows (Red). The line is connected continuously.")
+            st.info("ℹ️ **Chart Explanation:** 'H1, H2...' are the true Swing Highs (Green) and 'L1, L2...' are the true Swing Lows (Red), calculated using the ZigZag algorithm.")
         else:
             st.warning("Not enough intraday data for today.")
     else:
@@ -353,20 +400,18 @@ with colA:
             lv = pivots(pdh, pdl, pdc)
             top, bot = cpr(pdh, pdl, pdc)
             
-            # Display R3, R2, R1 in Green (Call Side)
-            st.markdown(f"<span style='color:green;'>**R3**: {lv['R3']:,.1f}</span>", unsafe_allow_html=True)
-            st.markdown(f"<span style='color:green;'>**R2**: {lv['R2']:,.1f}</span>", unsafe_allow_html=True)
-            st.markdown(f"<span style='color:green;'>**R1**: {lv['R1']:,.1f}</span>", unsafe_allow_html=True)
+            # Display Call Side (Resistance) in GREEN
+            st.markdown(f"<span style='color:green;'>**R3 (Call)**: {lv['R3']:,.1f}</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='color:green;'>**R2 (Call)**: {lv['R2']:,.1f}</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='color:green;'>**R1 (Call)**: {lv['R1']:,.1f}</span>", unsafe_allow_html=True)
             
-            # Display Pivot in Default
             st.markdown(f"**Pivot**: {lv['Pivot']:,.1f}")
             
-            # Display S1, S2, S3 in Red (Put Side)
-            st.markdown(f"<span style='color:red;'>**S1**: {lv['S1']:,.1f}</span>", unsafe_allow_html=True)
-            st.markdown(f"<span style='color:red;'>**S2**: {lv['S2']:,.1f}</span>", unsafe_allow_html=True)
-            st.markdown(f"<span style='color:red;'>**S3**: {lv['S3']:,.1f}</span>", unsafe_allow_html=True)
+            # Display Put Side (Support) in RED
+            st.markdown(f"<span style='color:red;'>**S1 (Put)**: {lv['S1']:,.1f}</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='color:red;'>**S2 (Put)**: {lv['S2']:,.1f}</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='color:red;'>**S3 (Put)**: {lv['S3']:,.1f}</span>", unsafe_allow_html=True)
             
-            # Display CPR with colors
             st.markdown(f"<span style='color:green;'>**CPR Top**: {top:,.1f}</span>", unsafe_allow_html=True)
             st.markdown(f"<span style='color:red;'>**CPR Bot**: {bot:,.1f}</span>", unsafe_allow_html=True)
             
@@ -394,7 +439,7 @@ with colB:
 
 st.divider()
 
-# 5. BREADTH
+# 5. BREADTH (Colored Advancing/Declining)
 st.subheader("🌐 Market Breadth (18 Heavyweights)")
 data = fetch_many(tuple(HEAVYWEIGHTS))
 rows = []
@@ -410,8 +455,12 @@ if rows:
     adv = (tbl["Change %"] > 0).sum()
     dec = (tbl["Change %"] < 0).sum()
     a, b, c = st.columns(3)
-    a.metric("Advancing", adv)
-    b.metric("Declining", dec)
+    a.markdown(f"<span style='color:green;'>**Advancing**</span>", unsafe_allow_html=True)
+    a.markdown(f"<h2 style='color:green;'>{adv}</h2>", unsafe_allow_html=True)
+    
+    b.markdown(f"<span style='color:red;'>**Declining**</span>", unsafe_allow_html=True)
+    b.markdown(f"<h2 style='color:red;'>{dec}</h2>", unsafe_allow_html=True)
+    
     c.metric("Avg Change %", f"{tbl['Change %'].mean():+.2f}%")
     st.dataframe(tbl, use_container_width=True, hide_index=True)
 else:
@@ -419,7 +468,7 @@ else:
 
 st.divider()
 
-# 6. BIG PLAYER
+# 6. BIG PLAYER (Colored BUY/SELL)
 st.subheader("🐋 Big Player Alert")
 st.caption("Volume spike (≥2.5×) + strong body (≥1.5×) on last completed 5-min candle")
 hits = []
@@ -430,10 +479,22 @@ for sym, dd in data.items():
                      "Signal": sig,
                      "Price": dd["Close"].iloc[-1]})
 if hits:
-    st.dataframe(pd.DataFrame(hits), use_container_width=True, hide_index=True)
+    df_hits = pd.DataFrame(hits)
+    
+    # Apply coloring to the DataFrame
+    def color_signal(val):
+        if val == 'BUY':
+            return 'color: green; font-weight: bold'
+        elif val == 'SELL':
+            return 'color: red; font-weight: bold'
+        return ''
+        
+    st.dataframe(df_hits.style.applymap(color_signal, subset=['Signal']), 
+                 use_container_width=True, hide_index=True)
+                 
     b = sum(1 for h in hits if h["Signal"] == "BUY")
     s = len(hits) - b
-    st.success(f"Buy pressure: {b} | Sell pressure: {s}")
+    st.markdown(f"<span style='color:green;'><b>Buy pressure: {b}</b></span> | <span style='color:red;'><b>Sell pressure: {s}</b></span>", unsafe_allow_html=True)
 else:
     st.info("No Big Player signals on the last completed candle.")
 
