@@ -8,39 +8,33 @@ from streamlit_autorefresh import st_autorefresh
 import yfinance as yf
 
 st.set_page_config(page_title="Nifty Smart Monitor", layout="wide")
-st_autorefresh(interval=60 * 1000, key="refresh")
+st_autorefresh(interval=60000, key="refresh")
 st.title("NIFTY 50 - Smart Money & Market Monitor")
 
-
-def get_last_bar_change(d):
-    if d is None or len(d) < 2:
-        return None, None
+def chg(d):
+    if d is None or len(d) < 2: return None, None
     c = float(d["Close"].iloc[-1])
     p = float(d["Close"].iloc[-2])
     return c, (((c - p) / p) * 100 if p != 0 else None)
 
-
-def calculate_rsi(close, w=14):
+def rsi(close, w=14):
     d = close.diff()
     g = d.clip(lower=0)
     l = -d.clip(upper=0)
-    ag = g.ewm(alpha=1 / w, adjust=False, min_periods=w).mean()
-    al = l.ewm(alpha=1 / w, adjust=False, min_periods=w).mean()
-    rs = ag / al
-    rsi = 100.0 - (100.0 / (1.0 + rs))
-    return rsi.mask(al == 0, 100.0).mask((ag == 0) & (al == 0), 50.0)
-
+    ag = g.ewm(alpha=1/w, adjust=False, min_periods=w).mean()
+    al = l.ewm(alpha=1/w, adjust=False, min_periods=w).mean()
+    r = 100.0 - (100.0 / (1.0 + (ag/al)))
+    return r.mask(al == 0, 100.0).mask((ag == 0) & (al == 0), 50.0)
 
 @st.cache_data(ttl=60)
-def get_stock_data(sym, p, itv=None):
+def gsd(sym, p, itv=None):
     t = yf.Ticker(sym)
     return t.history(period=p, interval=itv) if itv else t.history(period=p)
 
-
 @st.cache_data(ttl=300)
-def get_breadth():
+def gbreadth():
     syms = ["ADANIENT.NS", "ASIANPAINT.NS", "AXISBANK.NS", "BAJFINANCE.NS", "BHARTIARTL.NS", "HDFCBANK.NS", "ICICIBANK.NS", "INFY.NS", "ITC.NS", "KOTAKBANK.NS", "LT.NS", "M&M.NS", "MARUTI.NS", "RELIANCE.NS", "SBIN.NS", "TCS.NS", "TATAMOTORS.NS", "TITAN.NS"]
-    out = []
+    o = []
     try:
         df = yf.download(syms, period="2d", interval="1d", group_by="ticker", progress=False, threads=True)
         for s in syms:
@@ -50,18 +44,15 @@ def get_breadth():
                     c = float(h["Close"].iloc[-1])
                     p = float(h["Close"].iloc[-2])
                     if p > 0:
-                        out.append({"sym": s.replace(".NS", ""), "ltp": round(c, 2), "chg": round(((c - p) / p) * 100, 2)})
-            except Exception:
-                pass
-    except Exception:
-        pass
-    return out
-
+                        o.append({"s": s.replace(".NS", ""), "l": round(c,2), "c": round(((c-p)/p)*100, 2)})
+            except: pass
+    except: pass
+    return o
 
 @st.cache_data(ttl=300)
-def get_news():
+def gnews():
     feeds = ["https://tamil.goodreturns.in/rss/feeds/tamil-money-news-fb.xml", "https://www.moneycontrol.com/rss/marketreports.xml"]
-    out = []
+    o = []
     for u in feeds:
         try:
             r = requests.get(u, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
@@ -70,52 +61,48 @@ def get_news():
                 for e in f.entries[:3]:
                     t = e.get("title", "").strip()
                     l = e.get("link", "")
-                    if t:
-                        out.append("[" + t + "](" + l + ")" if l else t)
-                if len(out) >= 6:
-                    break
-        except Exception:
-            continue
-    return out[:6] if out else ["வர்த்தக செய்திகள் தற்காலிகமாக கிடைக்கவில்லை."]
-
+                    if t: o.append("[" + t + "](" + l + ")" if l else t)
+                if len(o) >= 6: break
+        except: continue
+    return o[:6] if o else ["செய்திகள் கிடைக்கவில்லை."]
 
 try:
-    hist = get_stock_data("^NSEI", "5d", "5m")
-    daily = get_stock_data("^NSEI", "5d", "1d")
-    bn_hist = get_stock_data("^NSEBANK", "2d", "5m")
-    vix_hist = get_stock_data("^INDIAVIX", "2d", "5m")
-except Exception:
-    st.error("Data source unavailable.")
+    h = gsd("^NSEI", "5d", "5m")
+    d = gsd("^NSEI", "5d", "1d")
+    bh = gsd("^NSEBANK", "2d", "5m")
+    vh = gsd("^INDIAVIX", "2d", "5m")
+except:
+    st.error("Data unavailable.")
     st.stop()
 
-if hist.empty or daily.empty or len(daily) < 2:
-    st.error("Nifty data unavailable.")
+if h.empty or d.empty or len(d) < 2:
+    st.error("Nifty unavailable.")
     st.stop()
 
-hist.index = pd.to_datetime(hist.index)
-hist.index = hist.index.tz_convert("Asia/Kolkata") if hist.index.tz is not None else hist.index.tz_localize("Asia/Kolkata")
-daily.index = pd.to_datetime(daily.index)
-daily.index = daily.index.tz_convert("Asia/Kolkata") if daily.index.tz is not None else daily.index.tz_localize("Asia/Kolkata")
+h.index = pd.to_datetime(h.index)
+h.index = h.index.tz_convert("Asia/Kolkata") if h.index.tz is not None else h.index.tz_localize("Asia/Kolkata")
+d.index = pd.to_datetime(d.index)
+d.index = d.index.tz_convert("Asia/Kolkata") if d.index.tz is not None else d.index.tz_localize("Asia/Kolkata")
 
-today = pd.Timestamp.now(tz="Asia/Kolkata").date()
-session_date = today if (hist.index.date == today).any() else hist.index[-1].date()
-session_hist = hist[hist.index.date == session_date].copy()
-if session_hist.empty:
-    st.error("Session data unavailable.")
+td = pd.Timestamp.now(tz="Asia/Kolkata").date()
+sd = td if (h.index.date == td).any() else h.index[-1].date()
+sh = h[h.index.date == sd].copy()
+if sh.empty:
+    st.error("Session unavailable.")
     st.stop()
 
-spot_price = float(session_hist["Close"].iloc[-1])
-_, nifty_5m = get_last_bar_change(session_hist)
+sp = float(sh["Close"].iloc[-1])
+_, n5 = chg(sh)
 
-prev_sessions = daily[pd.Index(daily.index.date) < session_date]
-if prev_sessions.empty:
-    st.error("Previous session unavailable.")
+ps = d[pd.Index(d.index.date) < sd]
+if ps.empty:
+    st.error("Prev unavailable.")
     st.stop()
 
-prev_day = prev_sessions.iloc[-1]
-pdh = float(prev_day["High"])
-pdl = float(prev_day["Low"])
-pdc = float(prev_day["Close"])
+pd_ = ps.iloc[-1]
+pdh = float(pd_["High"])
+pdl = float(pd_["Low"])
+pdc = float(pd_["Close"])
 
 PP = (pdh + pdl + pdc) / 3
 BC = min((pdh + pdl) / 2, (2 * PP) - ((pdh + pdl) / 2))
@@ -125,99 +112,80 @@ S1 = (2 * PP) - pdh
 R2 = PP + (pdh - pdl)
 S2 = PP - (pdh - pdl)
 
-tp = (session_hist["High"] + session_hist["Low"] + session_hist["Close"]) / 3
-cv = session_hist["Volume"].cumsum()
-session_hist["VWAP"] = np.where(cv > 0, (tp * session_hist["Volume"]).cumsum() / cv, np.nan)
-if session_hist["VWAP"].isna().all():
-    session_hist["VWAP"] = session_hist["Close"]
+tp = (sh["High"] + sh["Low"] + sh["Close"]) / 3
+cv = sh["Volume"].cumsum()
+sh["VWAP"] = np.where(cv > 0, (tp * sh["Volume"]).cumsum() / cv, np.nan)
+if sh["VWAP"].isna().all(): sh["VWAP"] = sh["Close"]
 
-bn_p, bn_5m = get_last_bar_change(bn_hist)
-vix_v, vix_5m = get_last_bar_change(vix_hist)
+bp, b5 = chg(bh)
+vv, v5 = chg(vh)
+e9 = float(sh["Close"].ewm(span=9, adjust=False).mean().iloc[-1])
+e21 = float(sh["Close"].ewm(span=21, adjust=False).mean().iloc[-1])
+rs = rsi(sh["Close"], 14)
+rv = float(rs.iloc[-1]) if pd.notna(rs.iloc[-1]) else 50.0
+vw = float(sh["VWAP"].iloc[-1]) if pd.notna(sh["VWAP"].iloc[-1]) else sp
 
-ema9_val = float(session_hist["Close"].ewm(span=9, adjust=False).mean().iloc[-1])
-ema21_val = float(session_hist["Close"].ewm(span=21, adjust=False).mean().iloc[-1])
+n5s = "{:+.2f}% (5m)".format(n5) if n5 is not None else "N/A"
+b5s = "{:+.2f}% (5m)".format(b5) if b5 is not None else "N/A"
+v5s = "{:+.2f}% (5m)".format(v5) if v5 is not None else "N/A"
+bps = "Rs {:,.2f}".format(bp) if bp is not None else "N/A"
+vvs = "{:.2f}".format(vv) if vv is not None else "N/A"
 
-rsi_series = calculate_rsi(session_hist["Close"], 14)
-rsi_val = float(rsi_series.iloc[-1]) if pd.notna(rsi_series.iloc[-1]) else 50.0
-
-vwap_val = float(session_hist["VWAP"].iloc[-1]) if pd.notna(session_hist["VWAP"].iloc[-1]) else spot_price
-
-nd_s = "{:+.2f}% (5m)".format(nifty_5m) if nifty_5m is not None else "N/A"
-bd_s = "{:+.2f}% (5m)".format(bn_5m) if bn_5m is not None else "N/A"
-vd_s = "{:+.2f}% (5m)".format(vix_5m) if vix_5m is not None else "N/A"
-nc = "#00b300" if (nifty_5m is not None and nifty_5m >= 0) else "#cc0000"
-bc = "#00b300" if (bn_5m is not None and bn_5m >= 0) else "#cc0000"
-vc = "#cc0000" if (vix_5m is not None and vix_5m >= 0) else "#00b300"
-bn_s = "Rs {:,.2f}".format(bn_p) if bn_p is not None else "N/A"
-vix_s = "{:.2f}".format(vix_v) if vix_v is not None else "N/A"
-
-st.caption("Session: " + str(session_date))
-st.write(
-    '<div style="border:1px solid #333;border-radius:6px;padding:8px;font-family:monospace;background:#fff;">'
-    '<div style="display:flex;border-bottom:1px solid #333;padding-bottom:5px;">'
-    '<div style="flex:1;border-right:1px solid #333;padding:4px;">'
-    '<b>NIFTY 50</b><br><b style="font-size:16px;">Rs {:,.2f}</b><br>'.format(spot_price)
-    + '<span style="color:' + nc + ';">' + nd_s + '</span></div>'
-    '<div style="flex:1;padding:4px;">'
-    '<b>BANK NIFTY</b><br><b style="font-size:16px;">' + bn_s + '</b><br>'
-    '<span style="color:' + bc + ';">' + bd_s + '</span></div></div>'
-    '<div style="border-bottom:1px solid #333;padding:4px 0;text-align:center;">'
-    '<b>INDIA VIX</b><br><b style="font-size:16px;">' + vix_s + '</b> '
-    '<span style="color:' + vc + ';">' + vd_s + '</span></div>'
-    '<div style="display:flex;padding-top:5px;">'
-    '<div style="flex:1;border-right:1px solid #333;padding:4px;">'
-    '<b>PDH</b><br><b>Rs {:,.2f}</b></div>'.format(pdh)
-    + '<div style="flex:1;padding:4px;"><b>PDL</b><br><b>Rs {:,.2f}</b></div></div></div>'.format(pdl),
-    unsafe_allow_html=True,
-)
+st.caption("Session: " + str(sd))
+c1, c2 = st.columns(2)
+c1.metric("NIFTY 50", "Rs {:,.2f}".format(sp), n5s)
+c2.metric("BANK NIFTY", bps, b5s)
+c3, c4 = st.columns(2)
+c3.metric("INDIA VIX", vvs, v5s)
+c4.metric("PDH / PDL", "Rs {:,.0f}/{:,.0f}".format(pdh, pdl))
 
 st.markdown("---")
 st.subheader("Classic Pivots")
-Pc = (pdh + pdl + pdc) / 3
-R1c = 2 * Pc - pdl
-S1c = 2 * Pc - pdh
-R2c = Pc + (R1c - S1c)
-S2c = Pc - (R1c - S1c)
-R3c = pdh + 2 * (Pc - pdl)
-S3c = pdl - 2 * (pdh - Pc)
-c1, c2, c3 = st.columns(3)
-c1.metric("R3", "Rs {:,.2f}".format(R3c))
-c1.metric("R2", "Rs {:,.2f}".format(R2c))
-c1.metric("R1", "Rs {:,.2f}".format(R1c))
-c2.metric("Pivot", "Rs {:,.2f}".format(Pc))
-c2.metric("Spot", "Rs {:,.2f}".format(spot_price))
-c3.metric("S1", "Rs {:,.2f}".format(S1c))
-c3.metric("S2", "Rs {:,.2f}".format(S2c))
-c3.metric("S3", "Rs {:,.2f}".format(S3c))
+pc = (pdh + pdl + pdc) / 3
+r1c = 2 * pc - pdl
+s1c = 2 * pc - pdh
+r2c = pc + (r1c - s1c)
+s2c = pc - (r1c - s1c)
+r3c = pdh + 2 * (pc - pdl)
+s3c = pdl - 2 * (pdh - pc)
+p1, p2, p3 = st.columns(3)
+p1.metric("R3", "Rs {:,.2f}".format(r3c))
+p1.metric("R2", "Rs {:,.2f}".format(r2c))
+p1.metric("R1", "Rs {:,.2f}".format(r1c))
+p2.metric("Pivot", "Rs {:,.2f}".format(pc))
+p2.metric("Spot", "Rs {:,.2f}".format(sp))
+p3.metric("S1", "Rs {:,.2f}".format(s1c))
+p3.metric("S2", "Rs {:,.2f}".format(s2c))
+p3.metric("S3", "Rs {:,.2f}".format(s3c))
 
 st.markdown("---")
 st.subheader("Gap Up / Gap Down")
 try:
-    h1m = get_stock_data("^NSEI", "5d", "1m")
-    if not h1m.empty:
-        h1m.index = pd.to_datetime(h1m.index)
-        h1m.index = h1m.index.tz_convert("Asia/Kolkata") if h1m.index.tz is not None else h1m.index.tz_localize("Asia/Kolkata")
-        d3 = h1m.resample("3min").agg({"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"}).dropna()
+    h1 = gsd("^NSEI", "5d", "1m")
+    if not h1.empty:
+        h1.index = pd.to_datetime(h1.index)
+        h1.index = h1.index.tz_convert("Asia/Kolkata") if h1.index.tz is not None else h1.index.tz_localize("Asia/Kolkata")
+        d3 = h1.resample("3min").agg({"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"}).dropna()
         d3["D"] = d3.index.date
         ad = sorted(d3["D"].unique())
         if len(ad) >= 2:
-            pc = d3[d3["D"] == ad[-2]]
-            tc = d3[d3["D"] == ad[-1]]
-            if len(pc) > 0 and len(tc) > 0:
-                X1h = float(pc.iloc[-1]["High"])
-                X2h = float(tc.iloc[0]["High"])
-                X1l = float(pc.iloc[-1]["Low"])
-                X2l = float(tc.iloc[0]["Low"])
-                X3u = X2h - X1h
-                X4u = X3u / 2
-                X5u = X1h - X4u
-                X3d = X2l - X1l
-                X4d = X3d / 2
-                X5d = X2l + X4d
-                pval = float(pc["Close"].iloc[-1])
-                tval = float(tc["Open"].iloc[0])
-                gp = tval - pval
-                gpp = (gp / pval * 100) if pval != 0 else 0
+            pcd = d3[d3["D"] == ad[-2]]
+            tcd = d3[d3["D"] == ad[-1]]
+            if len(pcd) > 0 and len(tcd) > 0:
+                x1h = float(pcd.iloc[-1]["High"])
+                x2h = float(tcd.iloc[0]["High"])
+                x1l = float(pcd.iloc[-1]["Low"])
+                x2l = float(tcd.iloc[0]["Low"])
+                x3u = x2h - x1h
+                x4u = x3u / 2
+                x5u = x1h - x4u
+                x3d = x2l - x1l
+                x4d = x3d / 2
+                x5d = x2l + x4d
+                pvl = float(pcd["Close"].iloc[-1])
+                tvl = float(tcd["Open"].iloc[0])
+                gp = tvl - pvl
+                gpp = (gp / pvl * 100) if pvl != 0 else 0
                 if gp > 0:
                     gt = "GAP UP"
                     gc = "#00b300"
@@ -227,157 +195,122 @@ try:
                 else:
                     gt = "FLAT"
                     gc = "#666666"
-                st.markdown('<div style="padding:10px;background:#f8f9fa;border-radius:8px;border-left:4px solid ' + gc + ';"><b style="color:' + gc + ';">' + gt + '</b><br><span>Gap: <b>Rs {:,.2f} pts</b> ({:+.2f}%)</span><br><span style="font-size:12px;">Prev: Rs {:,.2f} | Open: Rs {:,.2f}</span></div>'.format(gp, gpp, pval, tval), unsafe_allow_html=True)
-                g1, g2, g3 = st.columns(3)
-                g1.markdown("**Gap Up**")
-                g1.write("X1H: Rs {:,.2f}".format(X1h))
-                g1.write("X2H: Rs {:,.2f}".format(X2h))
-                g1.write("X3: {:+,.2f}".format(X3u))
-                g1.write("X4: {:+,.2f}".format(X4u))
-                g1.success("X5: Rs {:,.2f}".format(X5u))
-                g2.markdown("**Gap Down**")
-                g2.write("X1L: Rs {:,.2f}".format(X1l))
-                g2.write("X2L: Rs {:,.2f}".format(X2l))
-                g2.write("X3: {:+,.2f}".format(X3d))
-                g2.write("X4: {:+,.2f}".format(X4d))
-                g2.error("X5: Rs {:,.2f}".format(X5d))
-                g3.markdown("**Insight**")
-                if gp > 0:
-                    g3.info("Reversal: Rs {:,.2f}".format(X5u))
-                elif gp < 0:
-                    g3.info("Upside: Rs {:,.2f}".format(X5d))
-                else:
-                    g3.info("No gap")
-except Exception:
-    st.caption("3-min data unavailable.")
+                st.markdown('<div style="padding:10px;background:#f8f9fa;border-radius:8px;border-left:4px solid ' + gc + ';"><b style="color:' + gc + ';">' + gt + '</b><br>Gap: <b>Rs {:,.2f} pts</b> ({:+.2f}%)<br><span style="font-size:12px;">Prev: Rs {:,.2f} | Open: Rs {:,.2f}</span></div>'.format(gp, gpp, pvl, tvl), unsafe_allow_html=True)
+                gg1, gg2, gg3 = st.columns(3)
+                gg1.markdown("**Gap Up**")
+                gg1.write("X1H: Rs {:,.2f}".format(x1h))
+                gg1.write("X2H: Rs {:,.2f}".format(x2h))
+                gg1.write("X3: {:+,.2f}".format(x3u))
+                gg1.write("X4: {:+,.2f}".format(x4u))
+                gg1.success("X5: Rs {:,.2f}".format(x5u))
+                gg2.markdown("**Gap Down**")
+                gg2.write("X1L: Rs {:,.2f}".format(x1l))
+                gg2.write("X2L: Rs {:,.2f}".format(x2l))
+                gg2.write("X3: {:+,.2f}".format(x3d))
+                gg2.write("X4: {:+,.2f}".format(x4d))
+                gg2.error("X5: Rs {:,.2f}".format(x5d))
+                gg3.markdown("**Insight**")
+                if gp > 0: gg3.info("Reversal: Rs {:,.2f}".format(x5u))
+                elif gp < 0: gg3.info("Upside: Rs {:,.2f}".format(x5d))
+                else: gg3.info("No gap")
+except: st.caption("3-min unavailable.")
 
 st.markdown("---")
 st.subheader("Option Chain OI (Model)")
-st.caption("Estimated model. Real OI needs Angel One.")
-atm = int(round(spot_price / 50) * 50)
+atm = int(round(sp / 50) * 50)
 sk = [atm + (i * 50) for i in range(-5, 6)]
 rr = []
-tcall = 0
-tput = 0
+tcl = 0
+tpt = 0
 for s in sk:
-    d = abs(spot_price - s)
-    co = int(max(800000, 4500000 - (d * 8500)))
-    po = int(max(700000, 5200000 - (d * 8000)))
-    tcall += co
-    tput += po
-    if po > co * 1.3:
-        sg = "Put Support"
-    elif co > po * 1.3:
-        sg = "Call Resist"
-    else:
-        sg = "Neutral"
-    rr.append({"Strike": "Rs {:,}".format(s) + (" (ATM)" if s == atm else ""), "Call OI": "{:.1f} L".format(co / 100000), "Put OI": "{:.1f} L".format(po / 100000), "Signal": sg})
-pcr = tput / tcall if tcall > 0 else 0
+    dd = abs(sp - s)
+    co = int(max(800000, 4500000 - (dd * 8500)))
+    po = int(max(700000, 5200000 - (dd * 8000)))
+    tcl += co
+    tpt += po
+    if po > co * 1.3: sg = "Put Support"
+    elif co > po * 1.3: sg = "Call Resist"
+    else: sg = "Neutral"
+    rr.append({"Strike": "Rs {:,}".format(s) + (" (ATM)" if s == atm else ""), "Call OI": "{:.1f}L".format(co/100000), "Put OI": "{:.1f}L".format(po/100000), "Signal": sg})
+pcr = tpt / tcl if tcl > 0 else 0
 o1, o2, o3 = st.columns(3)
 o1.metric("PCR", "{:.2f}".format(pcr))
-o2.metric("Call Total", "{:.1f} L".format(tcall / 100000))
-o3.metric("Put Total", "{:.1f} L".format(tput / 100000))
+o2.metric("Call OI", "{:.1f}L".format(tcl/100000))
+o3.metric("Put OI", "{:.1f}L".format(tpt/100000))
 st.dataframe(pd.DataFrame(rr), hide_index=True, use_container_width=True)
 
 st.markdown("---")
-st.subheader("OI Spike Detection")
+st.subheader("OI Spike")
 spl = []
 for s in sk:
-    d = abs(spot_price - s)
-    co = int(max(800000, 4500000 - (d * 8500)))
-    po = int(max(700000, 5200000 - (d * 8000)))
-    if co > 4000000:
-        spl.append("Rs {:,} Call - Resistance".format(s))
-    if po > 4500000:
-        spl.append("Rs {:,} Put - Support".format(s))
+    dd = abs(sp - s)
+    co = int(max(800000, 4500000 - (dd * 8500)))
+    po = int(max(700000, 5200000 - (dd * 8000)))
+    if co > 4000000: spl.append("Rs {:,} Call - Resistance".format(s))
+    if po > 4500000: spl.append("Rs {:,} Put - Support".format(s))
 if spl:
-    for x in spl:
-        st.info(x)
-else:
-    st.caption("No spike.")
-
-st.markdown("---")
-st.subheader("Multi-Timeframe Trend")
-try:
-    for tn, tpp, ti in [("1H", "5d", "1h"), ("15m", "5d", "15m"), ("5m", "5d", "5m")]:
-        try:
-            tdf = get_stock_data("^NSEI", tpp, ti)
-            if not tdf.empty and len(tdf) >= 21:
-                tcl = tdf["Close"]
-                e9 = tcl.ewm(span=9, adjust=False).mean().iloc[-1]
-                e21 = tcl.ewm(span=21, adjust=False).mean().iloc[-1]
-                trn = "Bullish" if e9 > e21 else "Bearish"
-                tl_ = float(tcl.iloc[-1])
-                col = "#00b300" if trn == "Bullish" else "#cc0000"
-                st.markdown('<div style="padding:6px 12px;margin-bottom:4px;background:#f8f9fa;border-left:4px solid ' + col + ';"><b>' + tn + '</b> | Rs {:,.2f} | EMA9: Rs {:,.2f} | EMA21: Rs {:,.2f} | '.format(tl_, e9, e21) + '<span style="color:' + col + ';font-weight:bold;">' + trn + '</span></div>', unsafe_allow_html=True)
-        except Exception:
-            pass
-except Exception:
-    st.caption("MTF unavailable.")
+    for x in spl: st.info(x)
+else: st.caption("No spike.")
 
 st.markdown("---")
 st.subheader("Market Structure")
-bc2 = [spot_price > TC, spot_price > vwap_val, ema9_val > ema21_val, rsi_val >= 55]
-sc2 = [spot_price < BC, spot_price < vwap_val, ema9_val < ema21_val, rsi_val <= 45]
-if all(bc2):
-    st.success("Bullish Alignment.")
-elif all(sc2):
-    st.error("Bearish Alignment.")
-else:
-    st.info("Mixed / Range-Bound.")
+bc2 = [sp > TC, sp > vw, e9 > e21, rv >= 55]
+sc2 = [sp < BC, sp < vw, e9 < e21, rv <= 45]
+if all(bc2): st.success("Bullish.")
+elif all(sc2): st.error("Bearish.")
+else: st.info("Mixed.")
 
 st.markdown("---")
 st.subheader("Market Breadth")
-bst = get_breadth()
+bst = gbreadth()
 if bst:
     b1, b2, b3 = st.columns(3)
-    b1.metric("Adv", sum(1 for s in bst if s["chg"] > 0.05))
-    b2.metric("Dec", sum(1 for s in bst if s["chg"] < -0.05))
-    b3.metric("Avg", "{:+.2f}%".format(sum(s["chg"] for s in bst) / len(bst)))
-    ss = sorted(bst, key=lambda x: x["chg"], reverse=True)
+    b1.metric("Adv", sum(1 for s in bst if s["c"] > 0.05))
+    b2.metric("Dec", sum(1 for s in bst if s["c"] < -0.05))
+    b3.metric("Avg", "{:+.2f}%".format(sum(s["c"] for s in bst)/len(bst)))
+    ss = sorted(bst, key=lambda x: x["c"], reverse=True)
     gh = ""
     for s in ss[:5]:
-        gh += '<div style="border-bottom:1px solid #eee;padding:3px;"><b>' + s["sym"] + '</b> Rs {:,.2f} <span style="color:#00b300;">({:+.2f}%)</span></div>'.format(s["ltp"], s["chg"])
+        gh += '<div style="padding:2px;"><b>' + s["s"] + '</b> Rs {:,.2f} <span style="color:#00b300;">({:+.2f}%)</span></div>'.format(s["l"], s["c"])
     lh = ""
     for s in ss[-5:][::-1]:
-        lh += '<div style="border-bottom:1px solid #eee;padding:3px;"><b>' + s["sym"] + '</b> Rs {:,.2f} <span style="color:#cc0000;">({:+.2f}%)</span></div>'.format(s["ltp"], s["chg"])
-    st.markdown('<div style="display:flex;gap:10px;"><div style="flex:1;"><div style="color:#00b300;font-weight:bold;">Gainers</div>' + gh + '</div><div style="flex:1;"><div style="color:#cc0000;font-weight:bold;">Losers</div>' + lh + '</div></div>', unsafe_allow_html=True)
+        lh += '<div style="padding:2px;"><b>' + s["s"] + '</b> Rs {:,.2f} <span style="color:#cc0000;">({:+.2f}%)</span></div>'.format(s["l"], s["c"])
+    st.markdown('<div style="display:flex;gap:10px;"><div style="flex:1;"><b style="color:#00b300;">Gainers</b>' + gh + '</div><div style="flex:1;"><b style="color:#cc0000;">Losers</b>' + lh + '</div></div>', unsafe_allow_html=True)
 
 st.markdown("---")
 st.subheader("NIFTY Chart & CPR")
-cdf = session_hist[["Close", "VWAP"]].copy()
-cdf = cdf.replace([np.inf, -np.inf], np.nan).dropna(subset=["Close"])
-cdf = cdf[cdf["Close"] > 0].copy()
-if not cdf.empty:
+cd = sh[["Close", "VWAP"]].copy()
+cd = cd.replace([np.inf, -np.inf], np.nan).dropna(subset=["Close"])
+cd = cd[cd["Close"] > 0].copy()
+if not cd.empty:
     fig = go.Figure()
     fig.add_hrect(y0=BC, y1=TC, fillcolor="LightSkyBlue", opacity=0.15, line_width=0, layer="below")
-    fig.add_trace(go.Scatter(x=cdf.index, y=cdf["Close"], mode="lines", name="Price", line=dict(color="#0052cc", width=2)))
-    fig.add_trace(go.Scatter(x=cdf.index, y=cdf["VWAP"], mode="lines", name="VWAP", line=dict(color="#ff9900", width=1.5, dash="dash")))
+    fig.add_trace(go.Scatter(x=cd.index, y=cd["Close"], mode="lines", name="Price", line=dict(color="#0052cc", width=2)))
+    fig.add_trace(go.Scatter(x=cd.index, y=cd["VWAP"], mode="lines", name="VWAP", line=dict(color="#ff9900", width=1.5, dash="dash")))
     for nm, vl, cl in [("TC", TC, "#66b3ff"), ("Pivot", PP, "#0066cc"), ("BC", BC, "#3399ff"), ("R1", R1, "#ff6666"), ("S1", S1, "#66cc66"), ("PDH", pdh, "#cc0000"), ("PDL", pdl, "#00b300")]:
-        fig.add_trace(go.Scatter(x=[cdf.index[0], cdf.index[-1]], y=[vl, vl], mode="lines", name=nm, line=dict(color=cl, width=1, dash="dot")))
-    cvals = list(cdf["Close"]) + list(cdf["VWAP"].dropna()) + [pdh, pdl, R1, R2, S1, S2, PP, BC, TC]
-    vv = [float(v) for v in cvals if pd.notna(v) and np.isfinite(v) and abs(float(v) - spot_price) <= 500]
-    if len(vv) < 3:
-        ymn = spot_price - 150
-        ymx = spot_price + 150
+        fig.add_trace(go.Scatter(x=[cd.index[0], cd.index[-1]], y=[vl, vl], mode="lines", name=nm, line=dict(color=cl, width=1, dash="dot")))
+    cvl = list(cd["Close"]) + list(cd["VWAP"].dropna()) + [pdh, pdl, R1, R2, S1, S2, PP, BC, TC]
+    vvl = [float(v) for v in cvl if pd.notna(v) and np.isfinite(v) and abs(float(v) - sp) <= 500]
+    if len(vvl) < 3:
+        ymn = sp - 150
+        ymx = sp + 150
     else:
-        lo = min(vv)
-        hi = max(vv)
-        pad = max(50.0, (hi - lo) * 0.15)
-        ymn = lo - pad
-        ymx = hi + pad
+        lo = min(vvl)
+        hi = max(vvl)
+        pdd = max(50.0, (hi - lo) * 0.15)
+        ymn = lo - pdd
+        ymx = hi + pdd
         if ymx - ymn < 200:
-            ymn = spot_price - 100
-            ymx = spot_price + 100
+            ymn = sp - 100
+            ymx = sp + 100
     fig.update_layout(height=420, margin=dict(l=10, r=10, t=25, b=25), xaxis=dict(tickformat="%H:%M"), yaxis=dict(range=[ymn, ymx], fixedrange=False), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     st.plotly_chart(fig, use_container_width=True)
-else:
-    st.warning("Chart unavailable.")
+else: st.warning("Chart unavailable.")
 
 st.markdown("---")
 st.subheader("Buy/Sell Volume (Est.)")
 try:
-    vd = session_hist[["Open", "High", "Low", "Close", "Volume"]].dropna()
+    vd = sh[["Open", "High", "Low", "Close", "Volume"]].dropna()
     vd = vd[vd["Volume"] > 0]
     if len(vd) >= 5:
         ag = vd.resample("15min").agg({"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"}).dropna()
@@ -389,19 +322,17 @@ try:
                 tv = float(r["Volume"])
                 o = float(r["Open"])
                 c = float(r["Close"])
-                h = float(r["High"])
-                l = float(r["Low"])
-                rng = h - l if h > l else 1
+                hh = float(r["High"])
+                ll = float(r["Low"])
+                rng = hh - ll if hh > ll else 1
                 if c >= o:
                     br = (c - o) / rng if rng > 0 else 0.5
                     brt = 0.5 + (br * 0.4)
-                    if brt > 0.85:
-                        brt = 0.85
+                    if brt > 0.85: brt = 0.85
                 else:
                     br = (o - c) / rng if rng > 0 else 0.5
                     brt = 0.5 - (br * 0.4)
-                    if brt < 0.15:
-                        brt = 0.15
+                    if brt < 0.15: brt = 0.15
                 bv.append(tv * brt)
                 sv.append(tv * (1 - brt))
                 tl.append(i.strftime("%H:%M"))
@@ -414,15 +345,14 @@ try:
             ts = sum(sv)
             tot = tb + ts
             if tot > 0:
-                bp = (tb / tot) * 100
-                st.write("Buy%: {:.1f}% | Sell%: {:.1f}%".format(bp, 100 - bp))
-except Exception:
-    st.caption("Volume unavailable.")
+                bpp = (tb / tot) * 100
+                st.write("Buy%: {:.1f}% | Sell%: {:.1f}%".format(bpp, 100 - bpp))
+except: st.caption("Volume unavailable.")
 
 st.markdown("---")
 st.subheader("Pattern Visual Chart")
 try:
-    vdf = session_hist[["High", "Low", "Close"]].dropna()
+    vdf = sh[["High", "Low", "Close"]].dropna()
     if len(vdf) >= 20:
         vhi = vdf["High"].values
         vlo = vdf["Low"].values
@@ -452,7 +382,22 @@ try:
             st.info("Possible W / Double Bottom.")
         if len(shi) >= 2 and shv[-2] > 0 and abs(shv[-2] - shv[-1]) / shv[-2] < 0.006:
             st.info("Possible M / Double Top.")
-except Exception:
-    st.caption("Pattern chart unavailable.")
+except: st.caption("Pattern unavailable.")
 
-st.markdown("-
+st.markdown("---")
+st.subheader("Technical Indicators")
+i1, i2, i3, i4 = st.columns(4)
+i1.metric("EMA 9", "Rs {:,.2f}".format(e9))
+i2.metric("EMA 21", "Rs {:,.2f}".format(e21))
+i3.metric("VWAP", "Rs {:,.2f}".format(vw))
+if rv >= 70: rl = "Overbought"
+elif rv <= 30: rl = "Oversold"
+else: rl = "Neutral"
+i4.metric("RSI", "{:.2f}".format(rv), rl)
+
+st.markdown("---")
+st.subheader("வர்த்தக செய்திகள்")
+for it in gnews():
+    st.markdown(it)
+
+st.caption("Yahoo Finance may be delayed. Not financial advice.")
