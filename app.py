@@ -1,4 +1,4 @@
-# app.py – NIFTY Ultimate Bot (SMC & BOS Version)
+# app.py – NIFTY Ultimate Bot (Continuous H/L Chart Version)
 import logging
 import feedparser
 import numpy as np
@@ -153,85 +153,73 @@ def calculate_3m_levels(df):
     }
     return gap_up, gap_down
 
-def detect_smc_patterns(df):
-    """Detect Swing Highs, Swing Lows, BOS and Retest zones."""
-    if len(df) < 20:
-        return None, None, None
+def detect_swing_points(df):
+    """Identify Swing Highs (H) and Swing Lows (L) using a rolling window."""
+    if len(df) < 10:
+        return pd.Series(dtype=float), pd.Series(dtype=float)
     
     df = df.copy()
-    # Identify Swing Highs and Lows (window=5)
     window = 5
     df['Swing_High'] = df['High'] == df['High'].rolling(window=window, center=True).max()
     df['Swing_Low'] = df['Low'] == df['Low'].rolling(window=window, center=True).min()
     
-    swing_highs = df[df['Swing_High']]['High']
-    swing_lows = df[df['Swing_Low']]['Low']
-    
-    if swing_highs.empty or swing_lows.empty:
-        return None, None, None
-    
-    last_swing_high = swing_highs.iloc[-1]
-    last_swing_low = swing_lows.iloc[-1]
-    
-    # Check for Break of Structure (BOS)
-    current_price = df['Close'].iloc[-1]
-    bos_type = None
-    bos_level = None
-    retest_zone = None
-    
-    # Bullish BOS: Price breaks above last swing high
-    if current_price > last_swing_high:
-        bos_type = "Bullish BOS"
-        bos_level = last_swing_high
-        retest_zone = (last_swing_high, current_price)
-        
-    # Bearish BOS: Price breaks below last swing low
-    elif current_price < last_swing_low:
-        bos_type = "Bearish BOS"
-        bos_level = last_swing_low
-        retest_zone = (current_price, last_swing_low)
-        
-    return bos_type, bos_level, retest_zone
+    highs = df[df['Swing_High']]['High']
+    lows = df[df['Swing_Low']]['Low']
+    return highs, lows
 
-def draw_smc_chart(today_df, yesterday_high, yesterday_low, bos_type, bos_level, retest_zone):
-    """Draw live chart with SMC (BOS & Retest) annotations."""
+def draw_neat_chart(today_df):
+    """Draw a neat, continuous chart with 'H' and 'L' annotations."""
     fig = go.Figure()
     
-    # Add Candlestick
-    fig.add_trace(go.Candlestick(
-        x=today_df.index,
-        open=today_df['Open'], high=today_df['High'],
-        low=today_df['Low'], close=today_df['Close'],
-        name="NIFTY 5-min"
+    # Plot the price as a line with connectgaps=True to avoid breaks
+    fig.add_trace(go.Scatter(
+        x=today_df.index, y=today_df['Close'],
+        mode='lines', line=dict(color='black', width=1.5),
+        name="NIFTY",
+        connectgaps=True  # <--- THIS FIXES THE BROKEN LINE
     ))
     
-    # Add Yesterday's High and Low lines
-    fig.add_hline(y=yesterday_high, line_dash="dash", line_color="gray",
-                  annotation_text=f"Yesterday High ({yesterday_high:,.1f})",
-                  annotation_position="top right")
-    fig.add_hline(y=yesterday_low, line_dash="dash", line_color="gray",
-                  annotation_text=f"Yesterday Low ({yesterday_low:,.1f})",
-                  annotation_position="bottom right")
+    # Detect Swing Highs and Lows
+    highs, lows = detect_swing_points(today_df)
     
-    # Add BOS Line
-    if bos_level:
-        color = "green" if "Bullish" in str(bos_type) else "red"
-        fig.add_hline(y=bos_level, line_dash="dot", line_color=color,
-                      annotation_text=f"{bos_type} ({bos_level:,.1f})",
-                      annotation_position="bottom right")
-                      
-    # Add Retest Zone (Shaded Area)
-    if retest_zone:
-        fig.add_hrect(y0=retest_zone[0], y1=retest_zone[1],
-                      fillcolor="yellow", opacity=0.2, line_width=0,
-                      annotation_text="Retest Zone", annotation_position="top left")
+    # Add 'H' annotations for Swing Highs
+    for idx, val in highs.items():
+        fig.add_annotation(
+            x=idx, y=val,
+            text="H",
+            showarrow=False,
+            yshift=15,
+            font=dict(color="red", size=14, family="Arial Black")
+        )
+        
+    # Add 'L' annotations for Swing Lows
+    for idx, val in lows.items():
+        fig.add_annotation(
+            x=idx, y=val,
+            text="L",
+            showarrow=False,
+            yshift=-15,
+            font=dict(color="green", size=14, family="Arial Black")
+        )
     
+    # Update layout for a neat, gap-less look
     fig.update_layout(
-        title="NIFTY Live Intraday Chart (SMC Pattern)",
+        title="NIFTY Intraday Price Action (H = High, L = Low)",
         height=500,
         xaxis_rangeslider_visible=False,
         margin=dict(l=10, r=10, t=50, b=10),
-        yaxis_title="Price"
+        yaxis_title="Price",
+        plot_bgcolor='white',
+        xaxis=dict(
+            showgrid=True, 
+            gridcolor='lightgray',
+            # This removes the overnight gaps (e.g., 3:30 PM to 9:15 AM)
+            rangebreaks=[
+                dict(bounds=["sat", "mon"]), # Hide weekends
+                dict(bounds=[15.5, 9.25], pattern="hour") # Hide non-trading hours
+            ]
+        ),
+        yaxis=dict(showgrid=True, gridcolor='lightgray')
     )
     return fig
 
@@ -321,51 +309,23 @@ except DataError as e:
 
 st.divider()
 
-# 3. LIVE INTRADAY SMC PATTERN ANALYSIS (WITH CHART)
-st.subheader("📊 இன்றைய லைவ் SMC பேட்டன் & சார்ட்")
+# 3. LIVE NEAT CHART WITH H/L
+st.subheader("📈 NIFTY Intraday Chart (H = High, L = Low)")
 try:
     df_intra = fetch_ohlc(NIFTY, period="2d", interval="5m")
     df_intra['Date'] = df_intra.index.date
     dates = sorted(df_intra['Date'].unique())
     
     if len(dates) >= 2:
-        yesterday_df = df_intra[df_intra['Date'] == dates[-2]]
         today_df = df_intra[df_intra['Date'] == dates[-1]]
         
-        if not today_df.empty and not yesterday_df.empty:
-            y_high = yesterday_df['High'].max()
-            y_low = yesterday_df['Low'].min()
-            
-            bos_type, bos_level, retest_zone = detect_smc_patterns(today_df)
-            
-            # Display Today's Live OHLC
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Today's Live High", f"{today_df['High'].max():,.2f}")
-            c2.metric("Today's Live Low", f"{today_df['Low'].min():,.2f}")
-            c3.metric("Current Price", f"{today_df['Close'].iloc[-1]:,.2f}")
-            c4.metric("Yesterday's High/Low", f"{y_high:,.0f} / {y_low:,.0f}")
-            
-            st.write("---")
-            
-            # Live Chart with SMC Annotations
-            fig = draw_smc_chart(today_df, y_high, y_low, bos_type, bos_level, retest_zone)
+        if not today_df.empty:
+            # Live Chart with H and L annotations
+            fig = draw_neat_chart(today_df)
             st.plotly_chart(fig, use_container_width=True)
             
             st.write("---")
-            
-            if bos_type:
-                st.markdown(f"### 📈 Detected Pattern: **{bos_type}**")
-                st.write(f"**Break Level:** {bos_level:,.2f}")
-                if retest_zone:
-                    st.info(f"🎯 **Retest Zone:** {retest_zone[0]:,.2f} - {retest_zone[1]:,.2f}. Wait for price to come back to this zone to enter a trade.")
-                
-                if "Bullish" in bos_type:
-                    st.success("🚀 **Market Implication:** Bullish Break of Structure (BOS) detected! The market has broken above its recent high. Look for a pullback (Retest) to the broken level to enter a **Long (Buy)** position.")
-                else:
-                    st.error("🔻 **Market Implication:** Bearish Break of Structure (BOS) detected! The market has broken below its recent low. Look for a pullback (Retest) to the broken level to enter a **Short (Sell)** position.")
-            else:
-                st.info("➡️ **No clear Break of Structure (BOS) detected yet.** The market is currently ranging or consolidating. Wait for a clear break above the last swing high or below the last swing low.")
-            
+            st.info("ℹ️ **Chart Explanation:** 'H' indicates a Swing High (Local Top) and 'L' indicates a Swing Low (Local Bottom). The line is now connected without gaps.")
         else:
             st.warning("Not enough intraday data for today.")
     else:
