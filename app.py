@@ -1,4 +1,4 @@
-# app.py – NIFTY Ultimate Bot (Continuous H/L Chart Version)
+# app.py – NIFTY Ultimate Bot (Colored Pivots & Sequential H/L Chart)
 import logging
 import feedparser
 import numpy as np
@@ -154,18 +154,23 @@ def calculate_3m_levels(df):
     return gap_up, gap_down
 
 def detect_swing_points(df):
-    """Identify Swing Highs (H) and Swing Lows (L) using a rolling window."""
+    """Identify Swing Highs (H1, H2...) and Swing Lows (L1, L2...) sequentially."""
     if len(df) < 10:
-        return pd.Series(dtype=float), pd.Series(dtype=float)
+        return pd.DataFrame(), pd.DataFrame()
     
     df = df.copy()
     window = 5
     df['Swing_High'] = df['High'] == df['High'].rolling(window=window, center=True).max()
     df['Swing_Low'] = df['Low'] == df['Low'].rolling(window=window, center=True).min()
     
-    highs = df[df['Swing_High']]['High']
-    lows = df[df['Swing_Low']]['Low']
-    return highs, lows
+    swing_highs = df[df['Swing_High']].copy()
+    swing_lows = df[df['Swing_Low']].copy()
+    
+    # Assign sequential labels: H1, H2, H3... and L1, L2, L3...
+    swing_highs['Label'] = [f"H{i+1}" for i in range(len(swing_highs))]
+    swing_lows['Label'] = [f"L{i+1}" for i in range(len(swing_lows))]
+    
+    return swing_highs, swing_lows
 
 def draw_neat_chart(today_df):
     """Draw a neat, continuous chart with 'H' and 'L' annotations."""
@@ -180,26 +185,26 @@ def draw_neat_chart(today_df):
     ))
     
     # Detect Swing Highs and Lows
-    highs, lows = detect_swing_points(today_df)
+    swing_highs, swing_lows = detect_swing_points(today_df)
     
-    # Add 'H' annotations for Swing Highs
-    for idx, val in highs.items():
+    # Add 'H' annotations for Swing Highs (GREEN)
+    for _, row in swing_highs.iterrows():
         fig.add_annotation(
-            x=idx, y=val,
-            text="H",
+            x=row.name, y=row['High'],
+            text=row['Label'],
             showarrow=False,
             yshift=15,
-            font=dict(color="red", size=14, family="Arial Black")
+            font=dict(color="green", size=14, family="Arial Black")
         )
         
-    # Add 'L' annotations for Swing Lows
-    for idx, val in lows.items():
+    # Add 'L' annotations for Swing Lows (RED)
+    for _, row in swing_lows.iterrows():
         fig.add_annotation(
-            x=idx, y=val,
-            text="L",
+            x=row.name, y=row['Low'],
+            text=row['Label'],
             showarrow=False,
             yshift=-15,
-            font=dict(color="green", size=14, family="Arial Black")
+            font=dict(color="red", size=14, family="Arial Black")
         )
     
     # Update layout for a neat, gap-less look
@@ -213,7 +218,6 @@ def draw_neat_chart(today_df):
         xaxis=dict(
             showgrid=True, 
             gridcolor='lightgray',
-            # This removes the overnight gaps (e.g., 3:30 PM to 9:15 AM)
             rangebreaks=[
                 dict(bounds=["sat", "mon"]), # Hide weekends
                 dict(bounds=[15.5, 9.25], pattern="hour") # Hide non-trading hours
@@ -309,7 +313,7 @@ except DataError as e:
 
 st.divider()
 
-# 3. LIVE NEAT CHART WITH H/L
+# 3. LIVE NEAT CHART WITH H/L (Sequential & Colored)
 st.subheader("📈 NIFTY Intraday Chart (H = High, L = Low)")
 try:
     df_intra = fetch_ohlc(NIFTY, period="2d", interval="5m")
@@ -320,12 +324,11 @@ try:
         today_df = df_intra[df_intra['Date'] == dates[-1]]
         
         if not today_df.empty:
-            # Live Chart with H and L annotations
             fig = draw_neat_chart(today_df)
             st.plotly_chart(fig, use_container_width=True)
             
             st.write("---")
-            st.info("ℹ️ **Chart Explanation:** 'H' indicates a Swing High (Local Top) and 'L' indicates a Swing Low (Local Bottom). The line is now connected without gaps.")
+            st.info("ℹ️ **Chart Explanation:** 'H1, H2, H3...' are sequential Swing Highs (Green) and 'L1, L2, L3...' are sequential Swing Lows (Red). The line is connected continuously.")
         else:
             st.warning("Not enough intraday data for today.")
     else:
@@ -335,7 +338,7 @@ except DataError as e:
 
 st.divider()
 
-# 4. PIVOTS & GAP LEVELS
+# 4. PIVOTS & GAP LEVELS (Colored Call/Put)
 colA, colB = st.columns(2)
 with colA:
     st.subheader("📐 Pivot Points (Zebu)")
@@ -349,10 +352,24 @@ with colA:
             pdc = dy["Close"].iloc[-2]
             lv = pivots(pdh, pdl, pdc)
             top, bot = cpr(pdh, pdl, pdc)
-            for k, v in lv.items():
-                st.write(f"**{k}**: {v:,.1f}")
-            st.write(f"**CPR Top**: {top:,.1f}")
-            st.write(f"**CPR Bot**: {bot:,.1f}")
+            
+            # Display R3, R2, R1 in Green (Call Side)
+            st.markdown(f"<span style='color:green;'>**R3**: {lv['R3']:,.1f}</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='color:green;'>**R2**: {lv['R2']:,.1f}</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='color:green;'>**R1**: {lv['R1']:,.1f}</span>", unsafe_allow_html=True)
+            
+            # Display Pivot in Default
+            st.markdown(f"**Pivot**: {lv['Pivot']:,.1f}")
+            
+            # Display S1, S2, S3 in Red (Put Side)
+            st.markdown(f"<span style='color:red;'>**S1**: {lv['S1']:,.1f}</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='color:red;'>**S2**: {lv['S2']:,.1f}</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='color:red;'>**S3**: {lv['S3']:,.1f}</span>", unsafe_allow_html=True)
+            
+            # Display CPR with colors
+            st.markdown(f"<span style='color:green;'>**CPR Top**: {top:,.1f}</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='color:red;'>**CPR Bot**: {bot:,.1f}</span>", unsafe_allow_html=True)
+            
     except DataError as e:
         st.error(str(e))
 
