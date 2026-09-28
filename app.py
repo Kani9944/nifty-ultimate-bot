@@ -1,4 +1,4 @@
-# app.py - NIFTY Ultimate Bot (Final Fixed Version)
+# app.py - NIFTY Ultimate Bot (compact, no syntax errors)
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -12,8 +12,8 @@ import streamlit as st
 import yfinance as yf
 from streamlit_autorefresh import st_autorefresh
 
-logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("nifty-bot")
+logging.basicConfig(level=logging.INFO)
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -42,8 +42,6 @@ MARKET_KEYWORDS = [
 class DataError(Exception):
     pass
 
-
-# ---------- TIMEZONE HELPERS ----------
 
 def to_ist(df):
     df = df.copy()
@@ -81,8 +79,6 @@ def session_change(df):
     return last, float(prev)
 
 
-# ---------- DATA FETCHING ----------
-
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_ohlc(symbol, period="5d", interval="5m"):
     try:
@@ -91,8 +87,7 @@ def fetch_ohlc(symbol, period="5d", interval="5m"):
         raise DataError(f"fetch failed for {symbol}: {exc}") from exc
     if df is None or df.empty:
         raise DataError(f"no data for {symbol}")
-    df = df.dropna(subset=["Open", "High", "Low", "Close"])
-    return df
+    return df.dropna(subset=["Open", "High", "Low", "Close"])
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -101,8 +96,7 @@ def fetch_3m_data(symbol):
         df = yf.Ticker(symbol).history(period="5d", interval="1m")
         if df is None or df.empty:
             raise DataError(f"no 1m data for {symbol}")
-        df = to_ist(df)
-        df = df.dropna(subset=["Open", "High", "Low", "Close"])
+        df = to_ist(df).dropna(subset=["Open", "High", "Low", "Close"])
         df = df.between_time("09:15", "15:30")
         df_3m = df.resample("3min").agg({
             "Open": "first", "High": "max", "Low": "min",
@@ -129,8 +123,6 @@ def fetch_many(symbols, interval="5m"):
     return out
 
 
-# ---------- INDICATORS ----------
-
 def ema(s, span):
     return s.ewm(span=span, adjust=False).mean()
 
@@ -151,12 +143,10 @@ def vwap(df):
     if volume.sum() <= 0:
         return pd.Series(np.nan, index=df.index)
     session = pd.Series(df.index.date, index=df.index)
-    cumulative_pv = (tp * volume).groupby(session).cumsum()
-    cumulative_volume = volume.groupby(session).cumsum()
-    return cumulative_pv / cumulative_volume.replace(0, np.nan)
+    cpv = (tp * volume).groupby(session).cumsum()
+    cv = volume.groupby(session).cumsum()
+    return cpv / cv.replace(0, np.nan)
 
-
-# ---------- ZEBU CALCULATIONS ----------
 
 def pivots(h, l, c):
     p = (h + l + c) / 3
@@ -182,7 +172,6 @@ def calculate_3m_gap_levels(df):
     dates = sorted(df["Date"].unique())
     if len(dates) < 2:
         return None, None, None
-
     prev_day = df[df["Date"] == dates[-2]]
     today = df[df["Date"] == dates[-1]]
     if prev_day.empty or today.empty:
@@ -347,8 +336,6 @@ def draw_neat_chart(today_df, threshold_pct=0.0015):
     return fig
 
 
-# ---------- BIG PLAYER ----------
-
 def big_player(df, vol_mult=2.5, body_mult=1.5, lookback=20):
     comp = get_confirmed_candles(df, interval_minutes=5)
     if len(comp) < lookback + 2:
@@ -385,8 +372,6 @@ def big_player_scan(data):
     return hits
 
 
-# ---------- MARKET STRUCTURE ----------
-
 def structure(session_df):
     if len(session_df) < 25:
         return "Insufficient Data", np.nan, np.nan, np.nan, np.nan, np.nan
@@ -408,8 +393,6 @@ def structure(session_df):
         return "Bearish", price, vw, e9, e21, r
     return "Mixed", price, vw, e9, e21, r
 
-
-# ---------- NEWS ----------
 
 @st.cache_data(ttl=300, show_spinner=False)
 def load_news(limit=60):
@@ -454,7 +437,6 @@ def load_news(limit=60):
                 "Entries": 0,
                 "Parser warning": str(exc)[:80],
             })
-
     seen = set()
     unique = []
     for item in items:
@@ -464,8 +446,6 @@ def load_news(limit=60):
             unique.append(item)
     return unique[:limit], pd.DataFrame(status_rows)
 
-
-# ---------- UI HELPERS ----------
 
 def show_metric(col, label, symbol):
     try:
@@ -486,7 +466,6 @@ def show_metric(col, label, symbol):
 st.title("🇮🇳 NIFTY Ultimate Bot")
 st.caption("Data via Yahoo Finance - may be delayed by up to 15 minutes.")
 
-# 1. MARKET OVERVIEW
 st.subheader("📊 Market Overview")
 c1, c2, c3 = st.columns(3)
 show_metric(c1, "NIFTY 50", NIFTY)
@@ -495,7 +474,6 @@ show_metric(c3, "India VIX", VIX)
 
 st.divider()
 
-# 2. MARKET STRUCTURE
 st.subheader("🧭 Market Structure (Intraday)")
 try:
     df5 = to_ist(fetch_ohlc(NIFTY, period="5d", interval="5m"))
@@ -518,7 +496,6 @@ except DataError as e:
 
 st.divider()
 
-# 3. CANDLESTICK CHART
 st.subheader("📈 NIFTY Intraday Chart (Candlestick + ZigZag H/L)")
 st.caption("ZigZag sensitivity: lower = more swings, higher = fewer swings")
 zz_pct = st.slider("ZigZag sensitivity (%)", 0.05, 0.50, 0.15, 0.01,
@@ -562,7 +539,6 @@ except DataError as e:
 
 st.divider()
 
-# 4. PIVOTS & GAP LEVELS
 colA, colB = st.columns(2)
 with colA:
     st.subheader("📐 Pivot Points (Zebu)")
@@ -620,4 +596,153 @@ with colB:
                     for k, v in gap_up.items():
                         st.write(f"**{k}**: {v:,.2f}")
                 with tab2:
-                    for k, v in 
+                    for k, v in gap_down.items():
+                        st.write(f"**{k}**: {v:,.2f}")
+    except DataError as e:
+        st.error(str(e))
+
+st.divider()
+
+st.subheader(f"🌐 Market Breadth ({len(HEAVYWEIGHTS)} Heavyweights)")
+data = fetch_many(tuple(HEAVYWEIGHTS))
+rows = []
+for sym, dd in data.items():
+    last_px, prev_px = session_change(dd)
+    if np.isnan(prev_px) or prev_px == 0:
+        continue
+    rows.append({
+        "Symbol": sym.replace(".NS", ""),
+        "Price": last_px,
+        "Change %": (last_px - prev_px) / prev_px * 100,
+    })
+
+if rows:
+    tbl = pd.DataFrame(rows)[["Symbol", "Price", "Change %"]]
+    tbl["Price"] = pd.to_numeric(tbl["Price"], errors="coerce").round(2)
+    tbl = tbl.sort_values("Change %", ascending=False)
+    adv = int((tbl["Change %"] > 0).sum())
+    dec = int((tbl["Change %"] < 0).sum())
+
+    a, b, c = st.columns(3)
+    a.markdown("<span style='color:green;'>**Advancing**</span>",
+               unsafe_allow_html=True)
+    a.markdown(f"<h2 style='color:green;'>{adv}</h2>", unsafe_allow_html=True)
+    b.markdown("<span style='color:red;'>**Declining**</span>",
+               unsafe_allow_html=True)
+    b.markdown(f"<h2 style='color:red;'>{dec}</h2>", unsafe_allow_html=True)
+    c.metric("Avg Change %", f"{tbl['Change %'].mean():+.2f}%")
+
+    def color_symbol_and_change(row):
+        color = ("color: green; font-weight: bold"
+                 if row["Change %"] > 0
+                 else "color: red; font-weight: bold")
+        return [color, "", color]
+
+    styled = tbl.style.apply(color_symbol_and_change, axis=1).format({
+        "Price": "{:.2f}",
+        "Change %": "{:+.2f}%",
+    })
+    st.dataframe(styled, use_container_width=True, hide_index=True)
+else:
+    st.warning("Breadth data unavailable right now.")
+
+st.divider()
+
+st.subheader("🐘 Big Player Entry (பிக் பிளேயர்)")
+hits = big_player_scan(data)
+
+if hits:
+    bp_tbl = pd.DataFrame(hits)[["Stock", "Side", "Volume x", "Price", "Time"]]
+    bp_tbl = bp_tbl.sort_values("Volume x", ascending=False)
+
+    buys = int((bp_tbl["Side"] == "BUY").sum())
+    sells = int((bp_tbl["Side"] == "SELL").sum())
+    total = buys + sells
+
+    col_bar, col_donut = st.columns([2, 1])
+
+    with col_bar:
+        ratio_fig = go.Figure()
+        ratio_fig.add_trace(go.Bar(
+            y=["BUY", "SELL"],
+            x=[buys, sells],
+            orientation="h",
+            marker=dict(
+                color=["#16A34A", "#DC2626"],
+                line=dict(color="#111827", width=1),
+            ),
+            text=[f"{buys} stocks", f"{sells} stocks"],
+            textposition="outside",
+        ))
+        ratio_fig.update_layout(
+            title="BUY vs SELL Pressure",
+            height=220,
+            margin=dict(l=10, r=40, t=40, b=10),
+            plot_bgcolor="white",
+            showlegend=False,
+            xaxis=dict(showgrid=True, gridcolor="#E5E7EB",
+                       title="Number of Stocks"),
+            yaxis=dict(showgrid=False),
+        )
+        st.plotly_chart(ratio_fig, use_container_width=True)
+
+    with col_donut:
+        if total > 0:
+            donut_fig = go.Figure()
+            donut_fig.add_trace(go.Pie(
+                labels=["BUY", "SELL"],
+                values=[buys, sells],
+                hole=0.55,
+                marker=dict(colors=["#16A34A", "#DC2626"]),
+                textinfo="label+percent",
+                textfont=dict(size=13, color="white"),
+            ))
+            donut_fig.update_layout(
+                title="Ratio",
+                height=220,
+                margin=dict(l=10, r=10, t=40, b=10),
+                showlegend=False,
+            )
+            st.plotly_chart(donut_fig, use_container_width=True)
+
+    st.dataframe(bp_tbl, use_container_width=True, hide_index=True)
+
+    if buys > sells:
+        st.success(f"🟢 பெரிய வாங்குதல் அதிகம்: BUY {buys} / SELL {sells}")
+    elif sells > buys:
+        st.error(f"🔴 பெரிய விற்பனை அதிகம்: SELL {sells} / BUY {buys}")
+    else:
+        st.info(f"🟡 கலவையான நிலை: BUY {buys} / SELL {sells}")
+else:
+    st.caption("கடைசி 5m கேண்டிலில் பெரிய வால்யூம் என்ட்ரி எதுவும் இல்லை.")
+
+st.caption("Volume-spike based estimate, not actual FII/DII data.")
+
+st.divider()
+
+st.subheader("📰 Market News (தமிழ்)")
+try:
+    news_all, feed_status = load_news()
+except Exception as exc:
+    news_all, feed_status = [], pd.DataFrame()
+    st.error(f"News load failed: {exc}")
+
+matched = [
+    n for n in news_all
+    if any(k in n["title"].lower() for k in MARKET_KEYWORDS)
+]
+shown = (matched or news_all)[:10]
+if shown:
+    for n in shown:
+        st.markdown(
+            f"- [{n['title']}]({n['link']})  \n  <small>{n['source']}</small>",
+            unsafe_allow_html=True,
+        )
+else:
+    st.info("News feeds returned no headlines right now.")
+
+if not feed_status.empty:
+    with st.expander("News feed status"):
+        st.dataframe(feed_status, use_container_width=True, hide_index=True)
+
+st.caption("Educational tool only. Not financial advice.")
