@@ -1,4 +1,4 @@
-# app.py - NIFTY Ultimate Bot (cleaned, fixed syntax)
+# app.py - NIFTY Ultimate Bot (ZigZag + Big Player Ratio)
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -59,7 +59,6 @@ def today_ist():
 
 
 def get_confirmed_candles(df, interval_minutes=5):
-    """Drop the last candle if it is still forming."""
     if df.empty:
         return df.copy()
     now_ist = datetime.now(IST)
@@ -73,7 +72,6 @@ def get_confirmed_candles(df, interval_minutes=5):
 
 
 def session_change(df):
-    """Return (last close, previous session close) from intraday data."""
     df = to_ist(df)
     dates = sorted(set(df.index.date))
     last = float(df["Close"].iloc[-1])
@@ -95,6 +93,25 @@ def fetch_ohlc(symbol, period="5d", interval="5m"):
         raise DataError(f"no data for {symbol}")
     df = df.dropna(subset=["Open", "High", "Low", "Close"])
     return df
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_3m_data(symbol):
+    """Fetch 1-minute data and resample to 3-minute candles."""
+    try:
+        df = yf.Ticker(symbol).history(period="5d", interval="1m")
+        if df is None or df.empty:
+            raise DataError(f"no 1m data for {symbol}")
+        df = to_ist(df)
+        df = df.dropna(subset=["Open", "High", "Low", "Close"])
+        df = df.between_time("09:15", "15:30")
+        df_3m = df.resample("3min").agg({
+            "Open": "first", "High": "max", "Low": "min",
+            "Close": "last", "Volume": "sum",
+        }).dropna(subset=["Open", "High", "Low", "Close"])
+        return df_3m
+    except Exception as exc:
+        raise DataError(f"3m data failed for {symbol}: {exc}") from exc
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -160,42 +177,53 @@ def cpr(h, l, c):
     return max(p, bc), min(p, bc)
 
 
-def calculate_5m_gap_levels(df):
+def calculate_3m_gap_levels(df):
+    """
+    Zebu 3-minute candle gap levels.
+    Uses resampled 1-minute data for accurate 3-min candles.
+    """
     df = to_ist(df)
     df["Date"] = df.index.date
     dates = sorted(df["Date"].unique())
     if len(dates) < 2:
         return None, None, None
+
     prev_day = df[df["Date"] == dates[-2]]
     today = df[df["Date"] == dates[-1]]
     if prev_day.empty or today.empty:
         return None, None, None
 
+    # Previous day last 3-min candle
     x1_high = prev_day["High"].iloc[-1]
+    x1_low = prev_day["Low"].iloc[-1]
+
+    # Today first 3-min candle
     x2_high = today["High"].iloc[0]
+    x2_low = today["Low"].iloc[0]
+
+    # Gap Up calculations
     x3_up = x2_high - x1_high
     x4_up = x3_up / 2
     x5_up = x1_high - x4_up
 
-    x1_low = prev_day["Low"].iloc[-1]
-    x2_low = today["Low"].iloc[0]
+    # Gap Down calculations
     x3_down = x2_low - x1_low
     x4_down = x3_down / 2
     x5_down = x2_low + x4_down
 
     gap_up = {
-        "X1 (Prev Close 5m High)": x1_high,
-        "X2 (Today Open 5m High)": x2_high,
-        "X3 (Difference X2-X1)": x3_up,
-        "X4 (Half of X3)": x4_up,
-        "X5 (Reversal Level X1-X4)": x5_up,
+        "X1 (Prev Last 3m High)": x1_high,
+        "X2 (Today First 3m High)": x2_high,
+        "X3 (X2 - X1)": x3_up,
+        "X4 (X3 / 2)": x4_up,
+        "X5 (Reversal = X1 - X4)": x5_up,
     }
     gap_down = {
-        "X1 (Prev Close 5m Low)": x1_low,
-        "X2 (Today Open 5m Low)": x2_low,
-        "X3 (Difference X2-X1)": x3_down,
-        "X4 (Half of X3)": x4_down,
-        "X5 (Reversal Level X2+X4)": x5_down,
+        "X1 (Prev Last 3m Low)": x1_low,
+        "X2 (Today First 3m Low)": x2_low,
+        "X3 (X2 - X1)": x3_down,
+        "X4 (X3 / 2)": x4_down,
+        "X5 (Reversal = X2 + X4)": x5_down,
     }
 
     prev_close = prev_day["Close"].iloc[-1]
@@ -206,16 +234,17 @@ def calculate_5m_gap_levels(df):
         gap_direction = "GAP DOWN"
     else:
         gap_direction = "NO GAP"
+
     return gap_up, gap_down, gap_direction
 
 
 def zigzag_swing_points(df, threshold_pct=0.0015):
+    """ZigZag with confirmed-only swings (no unconfirmed last pivot)."""
     if len(df) < 4:
         return pd.DataFrame(), pd.DataFrame()
     highs = df["High"].to_numpy()
     lows = df["Low"].to_numpy()
     indices = df.index
-
     swing_highs = []
     swing_lows = []
     pivot_type = "H"
@@ -258,10 +287,8 @@ def draw_neat_chart(today_df, threshold_pct=0.0015):
     fig = go.Figure()
     fig.add_trace(go.Candlestick(
         x=today_df.index,
-        open=today_df["Open"],
-        high=today_df["High"],
-        low=today_df["Low"],
-        close=today_df["Close"],
+        open=today_df["Open"], high=today_df["High"],
+        low=today_df["Low"], close=today_df["Close"],
         name="NIFTY",
         increasing_line_color="#16A34A",
         decreasing_line_color="#DC2626",
@@ -318,28 +345,22 @@ def draw_neat_chart(today_df, threshold_pct=0.0015):
         hovermode="x unified",
         showlegend=False,
         xaxis=dict(
-            type="date",
-            showgrid=True,
-            gridcolor="#E5E7EB",
+            type="date", showgrid=True, gridcolor="#E5E7EB",
             tickformat="%H:%M",
             range=[f"{day} 09:10", f"{day} 15:35"],
             rangeslider=dict(visible=False),
         ),
         yaxis=dict(
-            title="NIFTY",
-            showgrid=True,
-            gridcolor="#E5E7EB",
-            side="right",
-            tickformat=".0f",
+            title="NIFTY", showgrid=True, gridcolor="#E5E7EB",
+            side="right", tickformat=".0f",
         ),
     )
     return fig
 
 
-# ---------- BIG PLAYER (VOLUME SPIKE) ----------
+# ---------- BIG PLAYER ----------
 
 def big_player(df, vol_mult=2.5, body_mult=1.5, lookback=20):
-    """Check the last confirmed 5m candle for a volume + body spike."""
     comp = get_confirmed_candles(df, interval_minutes=5)
     if len(comp) < lookback + 2:
         return None
@@ -476,7 +497,7 @@ def show_metric(col, label, symbol):
 st.title("🇮🇳 NIFTY Ultimate Bot")
 st.caption("Data via Yahoo Finance - may be delayed by up to 15 minutes.")
 
-# 1. MARKET OVERVIEW (change vs previous session close)
+# 1. MARKET OVERVIEW
 st.subheader("📊 Market Overview")
 c1, c2, c3 = st.columns(3)
 show_metric(c1, "NIFTY 50", NIFTY)
@@ -510,6 +531,7 @@ st.divider()
 
 # 3. CANDLESTICK CHART
 st.subheader("📈 NIFTY Intraday Chart (Candlestick + ZigZag H/L)")
+st.caption("ZigZag sensitivity: lower = more swings, higher = fewer swings")
 zz_pct = st.slider("ZigZag sensitivity (%)", 0.05, 0.50, 0.15, 0.01,
                    key="zz_pct")
 try:
@@ -532,36 +554,12 @@ try:
             f"to {last_time.strftime('%d-%m-%Y %H:%M %Z')} | "
             f"Candles received: {len(today_df)}"
         )
-
-        # first-candle sanity check against previous session close
-        prev_sessions = df_intra[df_intra.index.date < latest_trade_date]
-        first_open = float(today_df["Open"].iloc[0])
-        if prev_sessions.empty:
-            open_check = "No previous session in feed"
-        else:
-            prev_close_val = float(prev_sessions["Close"].iloc[-1])
-            gap_pts = first_open - prev_close_val
-            if abs(gap_pts) < 0.5:
-                open_check = (f"First candle Open {first_open:,.2f} equals "
-                              f"previous close {prev_close_val:,.2f} "
-                              "(Yahoo may not show the real opening gap)")
-            else:
-                open_check = (f"Open {first_open:,.2f} vs previous close "
-                              f"{prev_close_val:,.2f} ({gap_pts:+.2f} pts)")
-
         with st.expander("Chart Feed Diagnostics"):
             st.write({
                 "Timezone": str(today_df.index.tz),
                 "First candle": str(today_df.index[0]),
                 "Last candle": str(today_df.index[-1]),
                 "Candle count": len(today_df),
-                "Open check": open_check,
-                "First candle OHLC": {
-                    "Open": float(today_df["Open"].iloc[0]),
-                    "High": float(today_df["High"].iloc[0]),
-                    "Low": float(today_df["Low"].iloc[0]),
-                    "Close": float(today_df["Close"].iloc[0]),
-                },
                 "Latest OHLC": {
                     "Open": float(today_df["Open"].iloc[-1]),
                     "High": float(today_df["High"].iloc[-1]),
@@ -584,7 +582,6 @@ with colA:
         if len(dy) < 2:
             st.warning("not enough daily candles")
         else:
-            # today's row exists -> use yesterday; otherwise last full day
             ref_idx = -2 if dy.index[-1].date() == today_ist() else -1
             pdh = dy["High"].iloc[ref_idx]
             pdl = dy["Low"].iloc[ref_idx]
@@ -613,123 +610,17 @@ with colA:
         st.error(str(e))
 
 with colB:
-    st.subheader("🎯 5-Min Gap Levels (Zebu)")
+    st.subheader("🎯 3-Min Gap Levels (Zebu)")
+    st.caption("Accurate 3-min candles (1-min data resampled)")
     try:
-        # FIXED: removed the duplicate 'fdf5g' typo
-        df5g = fetch_ohlc(NIFTY, period="5d", interval="5m")
-        result = calculate_5m_gap_levels(df5g)
+        df3 = fetch_3m_data(NIFTY)
+        result = calculate_3m_gap_levels(df3)
         if result[0] is None:
-            st.warning("not enough 5-min data")
+            st.warning("not enough 3-min data")
         else:
             gap_up, gap_down, gap_direction = result
             if gap_direction == "NO GAP":
                 st.info("No gap detected.")
             else:
                 up_active = gap_direction == "GAP UP"
-                tab1, tab2 = st.tabs([
-                    "📈 GAP UP (Active)" if up_active else "📈 GAP UP",
-                    "📉 GAP DOWN" if up_active else "📉 GAP DOWN (Active)",
-                ])
-                with tab1:
-                    for k, v in gap_up.items():
-                        st.write(f"**{k}**: {v:,.2f}")
-                with tab2:
-                    for k, v in gap_down.items():
-                        st.write(f"**{k}**: {v:,.2f}")
-    except DataError as e:
-        st.error(str(e))
-
-st.divider()
-
-# 5. BREADTH (change vs previous session close)
-st.subheader(f"🌐 Market Breadth ({len(HEAVYWEIGHTS)} Heavyweights)")
-data = fetch_many(tuple(HEAVYWEIGHTS))
-rows = []
-for sym, dd in data.items():
-    last_px, prev_px = session_change(dd)
-    if np.isnan(prev_px) or prev_px == 0:
-        continue
-    rows.append({
-        "Symbol": sym.replace(".NS", ""),
-        "Price": last_px,
-        "Change %": (last_px - prev_px) / prev_px * 100,
-    })
-
-if rows:
-    tbl = pd.DataFrame(rows)[["Symbol", "Price", "Change %"]]
-    tbl["Price"] = pd.to_numeric(tbl["Price"], errors="coerce").round(2)
-    tbl = tbl.sort_values("Change %", ascending=False)
-    adv = int((tbl["Change %"] > 0).sum())
-    dec = int((tbl["Change %"] < 0).sum())
-
-    a, b, c = st.columns(3)
-    a.markdown("<span style='color:green;'>**Advancing**</span>",
-               unsafe_allow_html=True)
-    a.markdown(f"<h2 style='color:green;'>{adv}</h2>", unsafe_allow_html=True)
-    b.markdown("<span style='color:red;'>**Declining**</span>",
-               unsafe_allow_html=True)
-    b.markdown(f"<h2 style='color:red;'>{dec}</h2>", unsafe_allow_html=True)
-    c.metric("Avg Change %", f"{tbl['Change %'].mean():+.2f}%")
-
-    def color_symbol_and_change(row):
-        color = ("color: green; font-weight: bold"
-                 if row["Change %"] > 0
-                 else "color: red; font-weight: bold")
-        return [color, "", color]
-
-    styled = tbl.style.apply(color_symbol_and_change, axis=1).format({
-        "Price": "{:.2f}",
-        "Change %": "{:+.2f}%",
-    })
-    st.dataframe(styled, use_container_width=True, hide_index=True)
-else:
-    st.warning("Breadth data unavailable right now.")
-
-st.divider()
-
-# 6. BIG PLAYER ENTRY
-st.subheader("🐘 Big Player Entry (பிக் பிளேயர்)")
-hits = big_player_scan(data)
-if hits:
-    bp_tbl = pd.DataFrame(hits)[["Stock", "Side", "Volume x", "Price", "Time"]]
-    bp_tbl = bp_tbl.sort_values("Volume x", ascending=False)
-    st.dataframe(bp_tbl, use_container_width=True, hide_index=True)
-    buys = int((bp_tbl["Side"] == "BUY").sum())
-    sells = int((bp_tbl["Side"] == "SELL").sum())
-    if buys > sells:
-        st.success(f"பெரிய வாங்குதல் அதிகம்: BUY {buys} / SELL {sells}")
-    elif sells > buys:
-        st.error(f"பெரிய விற்பனை அதிகம்: SELL {sells} / BUY {buys}")
-    else:
-        st.info(f"கலவையான நிலை: BUY {buys} / SELL {sells}")
-else:
-    st.caption("கடைசி 5m கேண்டிலில் பெரிய வால்யூம் என்ட்ரி எதுவும் இல்லை.")
-st.caption("Volume-spike based estimate, not actual FII/DII data.")
-
-st.divider()
-
-# 7. NEWS
-st.subheader("📰 Market News (தமிழ்)")
-try:
-    news_all, feed_status = load_news()
-except Exception as exc:
-    news_all, feed_status = [], pd.DataFrame()
-    st.error(f"News load failed: {exc}")
-
-matched = [
-    n for n in news_all
-    if any(k in n["title"].lower() for k in MARKET_KEYWORDS)
-]
-shown = (matched or news_all)[:10]
-if shown:
-    for n in shown:
-        st.markdown(f"- [{n['title']}]({n['link']})  \n  <small>{n['source']}</small>",
-                    unsafe_allow_html=True)
-else:
-    st.info("News feeds returned no headlines right now.")
-
-if not feed_status.empty:
-    with st.expander("News feed status"):
-        st.dataframe(feed_status, use_container_width=True, hide_index=True)
-
-st.caption("Educational tool only. Not financial advice.")
+               
