@@ -1,8 +1,9 @@
-# app.py – NIFTY Ultimate Bot (Live Intraday Pattern Version)
+# app.py – NIFTY Ultimate Bot (Live Chart & Pattern Version)
 import logging
 import feedparser
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 import yfinance as yf
 from streamlit_autorefresh import st_autorefresh
@@ -197,6 +198,54 @@ def detect_live_pattern(today_df, yesterday_high, yesterday_low):
             
     return pattern, today_high, today_low, current_price
 
+def draw_live_chart(today_df, yesterday_high, yesterday_low, pattern_name):
+    """Draw a live candlestick chart with High/Low and Pattern annotations."""
+    fig = go.Figure()
+    
+    # Add Candlestick
+    fig.add_trace(go.Candlestick(
+        x=today_df.index,
+        open=today_df['Open'], high=today_df['High'],
+        low=today_df['Low'], close=today_df['Close'],
+        name="NIFTY 5-min"
+    ))
+    
+    # Add Yesterday's High and Low lines
+    fig.add_hline(y=yesterday_high, line_dash="dash", line_color="gray",
+                  annotation_text=f"Yesterday High ({yesterday_high:,.1f})",
+                  annotation_position="top right")
+    fig.add_hline(y=yesterday_low, line_dash="dash", line_color="gray",
+                  annotation_text=f"Yesterday Low ({yesterday_low:,.1f})",
+                  annotation_position="bottom right")
+    
+    # Add Today's High and Low lines
+    today_high = today_df['High'].max()
+    today_low = today_df['Low'].min()
+    fig.add_hline(y=today_high, line_color="green",
+                  annotation_text=f"Today High ({today_high:,.1f})",
+                  annotation_position="top left")
+    fig.add_hline(y=today_low, line_color="red",
+                  annotation_text=f"Today Low ({today_low:,.1f})",
+                  annotation_position="bottom left")
+    
+    # Add Pattern Annotation
+    fig.add_annotation(
+        x=today_df.index[len(today_df)//2],
+        y=today_high,
+        text=f"Pattern: {pattern_name}",
+        showarrow=True, arrowhead=2, ax=0, ay=-40,
+        bgcolor="yellow", bordercolor="black"
+    )
+    
+    fig.update_layout(
+        title="NIFTY Live Intraday Chart (5-min)",
+        height=500,
+        xaxis_rangeslider_visible=False,
+        margin=dict(l=10, r=10, t=50, b=10),
+        yaxis_title="Price"
+    )
+    return fig
+
 def big_player(df, vol_mult=2.5, body_mult=1.5):
     if len(df) < 25:
         return None
@@ -283,13 +332,10 @@ except DataError as e:
 
 st.divider()
 
-# 3. LIVE INTRADAY PATTERN ANALYSIS (UPDATED)
-st.subheader("📊 இன்றைய லைவ் மார்க்கெட் பேட்டன் (Live Intraday Pattern)")
+# 3. LIVE INTRADAY PATTERN ANALYSIS (WITH CHART)
+st.subheader("📊 இன்றைய லைவ் மார்க்கெட் பேட்டன் & சார்ட்")
 try:
-    # Fetch intraday 5-min data for the last 2 days
     df_intra = fetch_ohlc(NIFTY, period="2d", interval="5m")
-    
-    # Get yesterday's data for comparison
     df_intra['Date'] = df_intra.index.date
     dates = sorted(df_intra['Date'].unique())
     
@@ -301,7 +347,6 @@ try:
             y_high = yesterday_df['High'].max()
             y_low = yesterday_df['Low'].min()
             
-            # Detect Today's Live Pattern
             pattern, t_high, t_low, curr_price = detect_live_pattern(today_df, y_high, y_low)
             
             # Display Today's Live OHLC
@@ -312,9 +357,14 @@ try:
             c4.metric("Yesterday's High/Low", f"{y_high:,.0f} / {y_low:,.0f}")
             
             st.write("---")
+            
+            # Live Chart
+            fig = draw_live_chart(today_df, y_high, y_low, pattern)
+            st.plotly_chart(fig, use_container_width=True)
+            
+            st.write("---")
             st.markdown(f"### 📈 Today's Live Pattern: **{pattern}**")
             
-            # Display logic for transparency
             st.write("**Pattern Logic Check (Today Live vs Yesterday):**")
             h_sym = "Higher High (HH)" if t_high > y_high else "Lower High (LH)"
             l_sym = "Higher Low (HL)" if t_low > y_low else "Lower Low (LL)"
@@ -336,13 +386,6 @@ try:
                 st.warning(f"⚠️ **Market Implication:** High volatility. The market is moving wildly. Avoid trading until a clear direction emerges.")
             else:
                 st.info(f"➡️ **Market Implication:** Consolidation phase. The market is stuck in a range. Wait for a breakout or breakdown.")
-            
-            st.write("---")
-            
-            # Show the previous pattern comparison
-            st.write("**Comparison with Yesterday's Pattern:**")
-            st.info(f"Yesterday's Pattern was based on Daily candles. Today's Live Pattern is based on Intraday (5-min) candles. This shows how the market has evolved today.")
-            
         else:
             st.warning("Not enough intraday data for today.")
     else:
