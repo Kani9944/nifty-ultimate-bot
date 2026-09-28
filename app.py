@@ -1,9 +1,8 @@
-# app.py – NIFTY Ultimate Bot (Final Fixed Version)
+# app.py – NIFTY Ultimate Bot (Final Version)
 import logging
 import feedparser
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
 import yfinance as yf
 from streamlit_autorefresh import st_autorefresh
@@ -42,13 +41,13 @@ def fetch_ohlc(symbol, period="5d", interval="5m"):
     if df is None or df.empty:
         raise DataError(f"no data for {symbol}")
     
-    # FIX 1: Drop rows only if OHLC is missing, NOT Volume (NIFTY index has no volume)
+    # Drop rows only if OHLC is missing, NOT Volume (NIFTY index has no volume)
     df = df.dropna(subset=['Open', 'High', 'Low', 'Close'])
     return df
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_3m_data(symbol):
-    """FIX 2: Fetch 5m data and resample to 3m (Yahoo doesn't support 3m directly)."""
+    """Fetch 5m data and resample to 3m as a fallback for Yahoo's limitations."""
     try:
         df = yf.Ticker(symbol).history(period="5d", interval="5m")
         if df is None or df.empty:
@@ -96,11 +95,10 @@ def rsi(s, period=14):
     return 100 - (100 / (1 + rs))
 
 def vwap(df):
-    """FIX 3: Handle missing Volume for indices gracefully."""
+    """Handle missing Volume for indices gracefully."""
     tp = (df["High"] + df["Low"] + df["Close"]) / 3
     v = df["Volume"].replace(0, np.nan)
     
-    # If Volume is entirely missing, use cumulative average of price
     if v.isna().all() or v.sum() == 0:
         return tp.expanding().mean()
         
@@ -177,9 +175,11 @@ def analyze_price_pattern(daily_df):
     h1, h2, h3 = highs[-3], highs[-2], highs[-1]
     l1, l2, l3 = lows[-3], lows[-2], lows[-1]
     
+    # Today's pattern (comparing today vs yesterday)
     curr_hh = h3 > h2
     curr_hl = l3 > l2
     
+    # Previous pattern (comparing yesterday vs day before)
     prev_hh = h2 > h1
     prev_hl = l2 > l1
     
@@ -296,36 +296,42 @@ except DataError as e:
 
 st.divider()
 
-# 3. PATTERN ANALYSIS
-st.subheader("📊 Price Action Pattern Analysis (High/Low)")
+# 3. PATTERN ANALYSIS (Replaced Chart)
+st.subheader("📊 Today's Market Levels & Pattern Match")
 try:
     daily_df = fetch_daily(NIFTY)
-    pattern_data = analyze_price_pattern(daily_df)
-    if pattern_data:
-        col1, col2 = st.columns(2)
-        with col1:
-            st.write("**Previous Pattern:**")
-            st.info(pattern_data["prev_pattern"])
-        with col2:
-            st.write("**Current Pattern:**")
-            if "Downtrend" in pattern_data["curr_pattern"] or "Bearish" in pattern_data["curr_pattern"]:
-                st.error(pattern_data["curr_pattern"])
-            elif "Uptrend" in pattern_data["curr_pattern"] or "Bullish" in pattern_data["curr_pattern"]:
-                st.success(pattern_data["curr_pattern"])
+    if len(daily_df) >= 2:
+        today = daily_df.iloc[-1]
+        yesterday = daily_df.iloc[-2]
+        
+        # Display Today's OHLC
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Today's Open", f"{today['Open']:,.2f}")
+        c2.metric("Today's High", f"{today['High']:,.2f}")
+        c3.metric("Today's Low", f"{today['Low']:,.2f}")
+        c4.metric("Current/Close", f"{today['Close']:,.2f}")
+        
+        # Pattern Match
+        pattern_data = analyze_price_pattern(daily_df)
+        if pattern_data:
+            st.write("---")
+            st.markdown(f"### 📈 Today's Pattern: **{pattern_data['curr_pattern']}**")
+            
+            if pattern_data['comparison'] == "No Change":
+                st.success(f"✅ Today's pattern **matches** the previous pattern: {pattern_data['prev_pattern']}")
             else:
-                st.warning(pattern_data["curr_pattern"])
-        
-        st.write("---")
-        st.markdown(f"### 🔄 Comparison: {pattern_data['comparison']}")
-        
-        with st.expander("📋 View High/Low Data Used"):
-            h = pattern_data["highs"]
-            l = pattern_data["lows"]
-            st.write(f"Day -2: High={h[0]:,.1f}, Low={l[0]:,.1f}")
-            st.write(f"Day -1: High={h[1]:,.1f}, Low={l[1]:,.1f}")
-            st.write(f"Today: High={h[2]:,.1f}, Low={l[2]:,.1f}")
+                st.warning(f"🔄 Today's pattern **shifted** from previous: {pattern_data['prev_pattern']} ➔ {pattern_data['curr_pattern']}")
+            
+            with st.expander("📋 View High/Low Data Used"):
+                h = pattern_data["highs"]
+                l = pattern_data["lows"]
+                st.write(f"Day -2: High={h[0]:,.1f}, Low={l[0]:,.1f}")
+                st.write(f"Day -1: High={h[1]:,.1f}, Low={l[1]:,.1f}")
+                st.write(f"Today: High={h[2]:,.1f}, Low={l[2]:,.1f}")
+        else:
+            st.warning("Not enough daily data for pattern analysis.")
     else:
-        st.warning("Not enough daily data for pattern analysis.")
+        st.warning("Not enough daily data.")
 except DataError as e:
     st.error(str(e))
 
@@ -355,7 +361,6 @@ with colA:
 with colB:
     st.subheader("🎯 3-Min Gap Levels (Zebu)")
     try:
-        # FIXED: Use fetch_3m_data (resampled)
         df3 = fetch_3m_data(NIFTY)
         gap_up, gap_down = calculate_3m_levels(df3)
         
@@ -374,33 +379,7 @@ with colB:
 
 st.divider()
 
-# 5. CHART
-st.subheader("📈 NIFTY Intraday Chart")
-try:
-    dfc = fetch_ohlc(NIFTY, period="2d", interval="5m").copy()
-    dfc["EMA9"] = ema(dfc["Close"], 9)
-    dfc["EMA21"] = ema(dfc["Close"], 21)
-    dfc["VWAP"] = vwap(dfc)
-    
-    fig = go.Figure()
-    fig.add_trace(go.Candlestick(x=dfc.index, open=dfc["Open"],
-                                  high=dfc["High"], low=dfc["Low"],
-                                  close=dfc["Close"], name="NIFTY"))
-    fig.add_trace(go.Scatter(x=dfc.index, y=dfc["EMA9"], name="EMA 9",
-                              line=dict(color="orange")))
-    fig.add_trace(go.Scatter(x=dfc.index, y=dfc["EMA21"], name="EMA 21",
-                              line=dict(color="blue")))
-    fig.add_trace(go.Scatter(x=dfc.index, y=dfc["VWAP"], name="VWAP",
-                              line=dict(color="purple", dash="dot")))
-    fig.update_layout(height=500, xaxis_rangeslider_visible=False,
-                      margin=dict(l=10, r=10, t=30, b=10))
-    st.plotly_chart(fig, use_container_width=True)
-except DataError as e:
-    st.error(str(e))
-
-st.divider()
-
-# 6. BREADTH
+# 5. BREADTH
 st.subheader("🌐 Market Breadth (18 Heavyweights)")
 data = fetch_many(tuple(HEAVYWEIGHTS))
 rows = []
@@ -425,7 +404,7 @@ else:
 
 st.divider()
 
-# 7. BIG PLAYER
+# 6. BIG PLAYER
 st.subheader("🐋 Big Player Alert")
 st.caption("Volume spike (≥2.5×) + strong body (≥1.5×) on last completed 5-min candle")
 hits = []
@@ -445,7 +424,7 @@ else:
 
 st.divider()
 
-# 8. NEWS
+# 7. NEWS
 st.subheader("📰 Tamil Financial News")
 news = load_news()
 if news:
