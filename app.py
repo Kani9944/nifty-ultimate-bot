@@ -437,3 +437,83 @@ for it in gnews():
     st.markdown(it)
 
 st.caption("Yahoo Finance may be delayed. Not financial advice.")
+
+# ===== Big Player panel (paste at the very end of app.py) =====
+
+# ^NSEI (index) has no volume in yfinance, so scan NIFTY 50 heavyweights instead
+BIG_STOCKS = [
+    "RELIANCE.NS", "HDFCBANK.NS", "ICICIBANK.NS", "INFY.NS", "TCS.NS",
+    "ITC.NS", "LT.NS", "BHARTIARTL.NS", "SBIN.NS", "AXISBANK.NS",
+    "KOTAKBANK.NS", "HINDUNILVR.NS", "BAJFINANCE.NS", "M&M.NS", "MARUTI.NS",
+]
+
+VOL_MULT = 2.5    # candle volume must be >= 2.5x recent average
+BODY_MULT = 1.5   # candle body must be >= 1.5x recent average body
+LOOKBACK = 20     # candles used for the averages
+
+
+@st.cache_data(ttl=60)
+def _download(sym):
+    df = yf.download(sym, period="5d", interval="5m", progress=False, auto_adjust=True)
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    return df
+
+
+def detect_big_player(df):
+    """Check the last COMPLETED 5m candle for a volume + body spike."""
+    if df is None or len(df) < LOOKBACK + 3:
+        return None
+    df = df.copy()
+    df["vol_avg"] = df["Volume"].rolling(LOOKBACK).mean().shift(1)
+    df["body"] = (df["Close"] - df["Open"]).abs()
+    df["body_avg"] = df["body"].rolling(LOOKBACK).mean().shift(1)
+
+    last = df.iloc[-2]
+    if pd.isna(last["vol_avg"]) or last["vol_avg"] <= 0 or pd.isna(last["body_avg"]):
+        return None
+
+    vol_ratio = float(last["Volume"] / last["vol_avg"])
+    strong_body = float(last["body"]) > BODY_MULT * float(last["body_avg"])
+
+    if vol_ratio >= VOL_MULT and strong_body:
+        return {
+            "Side": "BUY" if last["Close"] > last["Open"] else "SELL",
+            "Volume x": round(vol_ratio, 1),
+            "Time": df.index[-2].strftime("%H:%M"),
+            "Price": round(float(last["Close"]), 2),
+        }
+    return None
+
+
+def render_big_player_panel():
+    st.subheader("பிக் பிளேயர் என்ட்ரி (Big Player Alert)")
+    rows = []
+    for sym in BIG_STOCKS:
+        try:
+            hit = detect_big_player(_download(sym))
+        except Exception:
+            hit = None
+        if hit:
+            hit["Stock"] = sym.replace(".NS", "")
+            rows.append(hit)
+
+    if not rows:
+        st.caption("இப்போது பெரிய வால்யூம் என்ட்ரி எதுவும் இல்லை (last 5m candle).")
+        return
+
+    out = pd.DataFrame(rows)[["Stock", "Side", "Volume x", "Price", "Time"]]
+    out = out.sort_values("Volume x", ascending=False)
+    st.dataframe(out, use_container_width=True, hide_index=True)
+
+    buys = int((out["Side"] == "BUY").sum())
+    sells = int((out["Side"] == "SELL").sum())
+    if buys > sells:
+        st.success(f"பெரிய வாங்குதல் அதிகம்: BUY {buys} / SELL {sells}")
+    elif sells > buys:
+        st.error(f"பெரிய விற்பனை அதிகம்: SELL {sells} / BUY {buys}")
+    else:
+        st.info(f"கலவையான நிலை: BUY {buys} / SELL {sells}")
+
+st.markdown("---")
+render_big_player_panel()
