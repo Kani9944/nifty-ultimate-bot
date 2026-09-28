@@ -1,4 +1,4 @@
-# app.py – NIFTY Ultimate Bot (Final Corrected Version)
+# app.py – NIFTY Ultimate Bot (All Fixes Applied)
 import logging
 import feedparser
 import numpy as np
@@ -153,17 +153,21 @@ def calculate_3m_levels(df):
     }
     return gap_up, gap_down
 
-def zigzag_swing_points(df, threshold_pct=0.002):
+def zigzag_swing_points(df, threshold_pct=0.001, skip_first_n=3):
     """
-    ZigZag algorithm to find true Swing Highs and Lows.
-    threshold_pct = 0.2% move required to register a new swing (Balanced).
+    ZigZag algorithm with fixes:
+    - skip_first_n: Skip the first few candles to avoid false H1
+    - threshold_pct: 0.1% move required to register a new swing
     """
-    if len(df) < 3:
+    if len(df) < skip_first_n + 3:
         return pd.DataFrame(), pd.DataFrame()
-        
-    highs = df['High'].values
-    lows = df['Low'].values
-    indices = df.index
+    
+    # FIX 3: Skip first N candles to avoid day open being counted as H1
+    df_trimmed = df.iloc[skip_first_n:]
+    
+    highs = df_trimmed['High'].values
+    lows = df_trimmed['Low'].values
+    indices = df_trimmed.index
     
     swing_highs = []
     swing_lows = []
@@ -172,7 +176,7 @@ def zigzag_swing_points(df, threshold_pct=0.002):
     last_pivot_price = highs[0]
     last_pivot_idx = indices[0]
     
-    for i in range(1, len(df)):
+    for i in range(1, len(df_trimmed)):
         curr_high = highs[i]
         curr_low = lows[i]
         curr_idx = indices[i]
@@ -221,8 +225,8 @@ def draw_neat_chart(today_df):
         connectgaps=True
     ))
     
-    # Use a balanced threshold (0.2%) to capture more swings
-    swing_highs, swing_lows = zigzag_swing_points(today_df, threshold_pct=0.002)
+    # FIX 3 & 4: Skip first 3 candles + use 0.1% threshold
+    swing_highs, swing_lows = zigzag_swing_points(today_df, threshold_pct=0.001, skip_first_n=3)
     
     for _, row in swing_highs.iterrows():
         fig.add_annotation(
@@ -243,7 +247,6 @@ def draw_neat_chart(today_df):
         )
     
     fig.update_layout(
-        # FIXED: Removed the redundant title inside the chart
         title=None,
         height=500,
         xaxis_rangeslider_visible=False,
@@ -292,7 +295,9 @@ def structure(df):
 
 @st.cache_data(ttl=180, show_spinner=False)
 def load_news(limit=6):
+    # FIX 5: Updated RSS feeds for better reliability
     feeds = [
+        "https://www.dinamani.com/rss/business.xml",
         "https://tamil.business-standard.com/rss.xml",
         "https://www.dinamalar.com/rss/business.xml",
     ]
@@ -301,10 +306,20 @@ def load_news(limit=6):
         try:
             f = feedparser.parse(url)
             for e in f.entries[:limit]:
-                items.append((e.get("title", ""), e.get("link", "")))
+                title = e.get("title", "").strip()
+                link = e.get("link", "").strip()
+                if title and len(title) > 10:
+                    items.append((title, link))
         except Exception:
             log.exception("news fetch failed: %s", url)
-    return items[:limit]
+    # Remove duplicates
+    seen = set()
+    unique_items = []
+    for t, l in items:
+        if t not in seen:
+            seen.add(t)
+            unique_items.append((t, l))
+    return unique_items[:limit]
 
 # ---------- UI ----------
 st.title("🇮🇳 NIFTY Ultimate Bot")
@@ -363,7 +378,7 @@ try:
             st.plotly_chart(fig, use_container_width=True)
             
             st.write("---")
-            st.info("ℹ️ **Chart Explanation:** 'H1, H2...' are the true Swing Highs (Green) and 'L1, L2...' are the true Swing Lows (Red), calculated using the ZigZag algorithm with 0.2% threshold.")
+            st.info("ℹ️ **Chart Explanation:** 'H1, H2...' are the true Swing Highs (Green) and 'L1, L2...' are the true Swing Lows (Red). First 3 candles skipped to avoid false signals.")
         else:
             st.warning("Not enough intraday data for today.")
     else:
@@ -425,7 +440,7 @@ with colB:
 
 st.divider()
 
-# 5. BREADTH (Colored Advancing/Declining + Table)
+# 5. BREADTH (FIXED: Price to 2 decimals)
 st.subheader("🌐 Market Breadth (18 Heavyweights)")
 data = fetch_many(tuple(HEAVYWEIGHTS))
 rows = []
@@ -433,14 +448,14 @@ for sym, dd in data.items():
     if len(dd) < 2:
         continue
     ch = (dd["Close"].iloc[-1] - dd["Close"].iloc[-2]) / dd["Close"].iloc[-2]
-    # FIXED: Ensure Symbol comes first in the dictionary
     rows.append({"Symbol": sym.replace(".NS", ""),
                  "Price": dd["Close"].iloc[-1],
                  "Change %": ch * 100})
 if rows:
     tbl = pd.DataFrame(rows)
-    # FIXED: Explicitly reorder columns
     tbl = tbl[["Symbol", "Price", "Change %"]]
+    # FIX 2: Round Price to 2 decimals
+    tbl['Price'] = tbl['Price'].round(2)
     tbl = tbl.sort_values("Change %", ascending=False)
     
     adv = (tbl["Change %"] > 0).sum()
@@ -469,7 +484,7 @@ else:
 
 st.divider()
 
-# 6. BIG PLAYER (Colored BUY/SELL)
+# 6. BIG PLAYER (FIXED: Price to 2 decimals)
 st.subheader("🐋 Big Player Alert")
 st.caption("Volume spike (≥2.5×) + strong body (≥1.5×) on last completed 5-min candle")
 hits = []
@@ -481,8 +496,8 @@ for sym, dd in data.items():
                      "Price": dd["Close"].iloc[-1]})
 if hits:
     df_hits = pd.DataFrame(hits)
-    # FIXED: Reorder columns and format price to 2 decimals
     df_hits = df_hits[["Symbol", "Signal", "Price"]]
+    # FIX 1: Round Price to 2 decimals
     df_hits['Price'] = df_hits['Price'].round(2)
     
     def color_signal(val):
@@ -503,7 +518,7 @@ else:
 
 st.divider()
 
-# 7. NEWS
+# 7. NEWS (FIXED: More RSS sources)
 st.subheader("📰 Tamil Financial News")
 news = load_news()
 if news:
@@ -513,4 +528,4 @@ if news:
         else:
             st.markdown(f"- {t}")
 else:
-    st.info("No news available.")
+    st.info("No news available. RSS feeds may be temporarily blocked.")
