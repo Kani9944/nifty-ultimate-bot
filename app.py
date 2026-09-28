@@ -1,4 +1,4 @@
-# app.py – NIFTY Ultimate Bot (Complete, Production-Ready, No Syntax Errors)
+# app.py – NIFTY Ultimate Bot (Complete, No Syntax Errors)
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -42,7 +42,6 @@ class DataError(Exception):
 # ---------- TIMEZONE HELPERS ----------
 
 def to_ist(df):
-    """Convert DataFrame index to IST timezone."""
     df = df.copy()
     if df.index.tz is None:
         df.index = df.index.tz_localize("Asia/Kolkata")
@@ -51,24 +50,15 @@ def to_ist(df):
     return df
 
 def get_confirmed_candles(df, interval_minutes=5):
-    """
-    Return candles that have certainly completed based on IST time.
-    If market is closed, preserve all available historical candles.
-    """
     if df.empty:
         return df.copy()
-
     now_ist = datetime.now(ZoneInfo("Asia/Kolkata"))
     last_ts = df.index[-1]
-
     if last_ts.tzinfo is None:
         last_ts = last_ts.tz_localize("Asia/Kolkata")
-
     candle_end = last_ts + pd.Timedelta(minutes=interval_minutes)
-
     if now_ist < candle_end:
         return df.iloc[:-1].copy()
-
     return df.copy()
 
 # ---------- DATA FETCHING ----------
@@ -79,10 +69,8 @@ def fetch_ohlc(symbol, period="5d", interval="5m"):
         df = yf.Ticker(symbol).history(period=period, interval=interval)
     except Exception as exc:
         raise DataError(f"fetch failed for {symbol}: {exc}") from exc
-
     if df is None or df.empty:
         raise DataError(f"no data for {symbol}")
-
     df = df.dropna(subset=['Open', 'High', 'Low', 'Close'])
     return df
 
@@ -115,17 +103,13 @@ def rsi(s, period=14):
     return 100 - (100 / (1 + rs))
 
 def vwap(df):
-    """VWAP with daily reset. Returns NaN if volume not available."""
     tp = (df["High"] + df["Low"] + df["Close"]) / 3
     volume = df["Volume"].fillna(0)
-
     if volume.sum() <= 0:
         return pd.Series(np.nan, index=df.index)
-
     session = pd.Series(df.index.date, index=df.index)
     cumulative_pv = (tp * volume).groupby(session).cumsum()
     cumulative_volume = volume.groupby(session).cumsum()
-
     return cumulative_pv / cumulative_volume.replace(0, np.nan)
 
 # ---------- ZEBU CALCULATIONS ----------
@@ -147,32 +131,25 @@ def cpr(h, l, c):
     return max(p, bc), min(p, bc)
 
 def calculate_5m_gap_levels(df):
-    """Calculate X1-X5 based on Zebu 5-min candle logic."""
     df = to_ist(df)
     df['Date'] = df.index.date
     dates = sorted(df['Date'].unique())
-
     if len(dates) < 2:
         return None, None, None
-
     prev_day = df[df['Date'] == dates[-2]]
     today = df[df['Date'] == dates[-1]]
-
     if prev_day.empty or today.empty:
         return None, None, None
-
     x1_high = prev_day['High'].iloc[-1]
     x2_high = today['High'].iloc[0]
     x3_up = x2_high - x1_high
     x4_up = x3_up / 2
     x5_up = x1_high - x4_up
-
     x1_low = prev_day['Low'].iloc[-1]
     x2_low = today['Low'].iloc[0]
     x3_down = x2_low - x1_low
     x4_down = x3_down / 2
     x5_down = x2_low + x4_down
-
     gap_up = {
         "X1 (Prev Close 5m High)": x1_high,
         "X2 (Today Open 5m High)": x2_high,
@@ -187,44 +164,31 @@ def calculate_5m_gap_levels(df):
         "X4 (Half of X3)": x4_down,
         "X5 (Reversal Level X2+X4)": x5_down,
     }
-
     prev_close = prev_day['Close'].iloc[-1]
     today_open = today['Open'].iloc[0]
-
     if today_open > prev_close:
         gap_direction = "GAP UP"
     elif today_open < prev_close:
         gap_direction = "GAP DOWN"
     else:
         gap_direction = "NO GAP"
-
     return gap_up, gap_down, gap_direction
 
 def zigzag_swing_points(df, threshold_pct=0.0015):
-    """
-    ZigZag algorithm (production version):
-    - Does NOT append unconfirmed last pivot
-    - Full session sequence (no artificial removal)
-    """
     if len(df) < 4:
         return pd.DataFrame(), pd.DataFrame()
-
     highs = df["High"].to_numpy()
     lows = df["Low"].to_numpy()
     indices = df.index
-
     swing_highs = []
     swing_lows = []
-
     pivot_type = "H"
     pivot_price = highs[0]
     pivot_index = indices[0]
-
     for i in range(1, len(df)):
         high = highs[i]
         low = lows[i]
         index = indices[i]
-
         if pivot_type == "H":
             if high >= pivot_price:
                 pivot_price = high
@@ -243,24 +207,16 @@ def zigzag_swing_points(df, threshold_pct=0.0015):
                 pivot_type = "H"
                 pivot_price = high
                 pivot_index = index
-
     df_highs = pd.DataFrame(swing_highs)
     df_lows = pd.DataFrame(swing_lows)
-
     if not df_highs.empty:
         df_highs["Label"] = [f"H{i + 1}" for i in range(len(df_highs))]
     if not df_lows.empty:
         df_lows["Label"] = [f"L{i + 1}" for i in range(len(df_lows))]
-
     return df_highs, df_lows
 
 def draw_neat_chart(today_df):
-    """
-    Draw NIFTY intraday Candlestick chart with confirmed ZigZag swings.
-    Uses get_confirmed_candles() to handle market open/close properly.
-    """
     fig = go.Figure()
-
     fig.add_trace(go.Candlestick(
         x=today_df.index,
         open=today_df["Open"],
@@ -273,26 +229,17 @@ def draw_neat_chart(today_df):
         increasing_fillcolor="#16A34A",
         decreasing_fillcolor="#DC2626",
     ))
-
-    # FIX: Use helper to determine which candles are confirmed
     confirmed = get_confirmed_candles(today_df, interval_minutes=5)
-
-    # Use FULL session for proper H-L sequence
     swing_source = confirmed.between_time("09:15", "15:25")
-
     swing_highs, swing_lows = zigzag_swing_points(
-        swing_source,
-        threshold_pct=0.0015,
+        swing_source, threshold_pct=0.0015
     )
-
     swing_points = []
     for _, row in swing_highs.iterrows():
         swing_points.append((row["Index"], row["Price"], row["Label"], "high"))
     for _, row in swing_lows.iterrows():
         swing_points.append((row["Index"], row["Price"], row["Label"], "low"))
-
     swing_points.sort(key=lambda x: x[0])
-
     if swing_points:
         fig.add_trace(go.Scatter(
             x=[x[0] for x in swing_points],
@@ -319,7 +266,6 @@ def draw_neat_chart(today_df):
                 "Price: %{y:.2f}<extra></extra>"
             ),
         ))
-
     fig.update_layout(
         height=560,
         margin=dict(l=10, r=10, t=35, b=10),
@@ -342,11 +288,9 @@ def draw_neat_chart(today_df):
             tickformat=".0f",
         ),
     )
-
     return fig
 
 def big_player(df, vol_mult=2.5, body_mult=1.5):
-    """Detect volume spike + strong body on last completed candle."""
     if len(df) < 25:
         return None
     comp = df.iloc[:-1]
@@ -362,35 +306,27 @@ def big_player(df, vol_mult=2.5, body_mult=1.5):
     return None
 
 def structure(session_df):
-    """Market structure with VWAP fallback when volume is unavailable."""
     if len(session_df) < 25:
         return "Insufficient Data", np.nan, np.nan, np.nan, np.nan, np.nan
-
     c = session_df["Close"]
     price = c.iloc[-1]
     vw = vwap(session_df).iloc[-1]
     e9 = ema(c, 9).iloc[-1]
     e21 = ema(c, 21).iloc[-1]
     r = rsi(c).iloc[-1]
-
     if pd.isna(vw):
         if e9 > e21 and r > 50:
             return "Bullish (VWAP N/A)", price, vw, e9, e21, r
         if e9 < e21 and r < 50:
             return "Bearish (VWAP N/A)", price, vw, e9, e21, r
         return "Mixed (VWAP N/A)", price, vw, e9, e21, r
-
     if price > vw and e9 > e21 and r > 50:
         return "Bullish", price, vw, e9, e21, r
     if price < vw and e9 < e21 and r < 50:
         return "Bearish", price, vw, e9, e21, r
     return "Mixed", price, vw, e9, e21, r
 
-# ---------- NEWS (Robust with diagnostics) ----------
-
-def is_market_news(title):
-    text = title.lower()
-    return any(keyword in text for keyword in MARKET_KEYWORDS)
+# ---------- NEWS ----------
 
 @st.cache_data(ttl=300, show_spinner=False)
 def load_news(limit=10):
@@ -399,7 +335,6 @@ def load_news(limit=10):
         ("Business Standard Tamil", "https://tamil.business-standard.com/rss.xml"),
         ("Dinamalar Business", "https://www.dinamalar.com/rss/business.xml"),
     ]
-
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -410,23 +345,19 @@ def load_news(limit=10):
             "application/atom+xml, text/html;q=0.9, */*;q=0.8"
         ),
     }
-
     items = []
     status_rows = []
-
     for source, url in feeds:
         try:
             response = requests.get(url, headers=headers, timeout=12)
             response.raise_for_status()
             parsed = feedparser.parse(response.content)
-
             status_rows.append({
                 "Source": source,
                 "HTTP": response.status_code,
                 "Entries": len(parsed.entries),
                 "Parser warning": "Yes" if parsed.bozo else "No",
             })
-
             for entry in parsed.entries:
                 title = entry.get("title", "").strip()
                 link = entry.get("link", "").strip()
@@ -436,7 +367,6 @@ def load_news(limit=10):
                         "title": title,
                         "link": link,
                     })
-
         except Exception as exc:
             log.warning("News feed failed [%s]: %s", source, exc)
             status_rows.append({
@@ -445,7 +375,6 @@ def load_news(limit=10):
                 "Entries": 0,
                 "Parser warning": str(exc)[:80],
             })
-
     seen = set()
     unique = []
     for item in items:
@@ -453,7 +382,6 @@ def load_news(limit=10):
         if key not in seen:
             seen.add(key)
             unique.append(item)
-
     return unique[:limit], pd.DataFrame(status_rows)
 
 # ---------- UI ----------
@@ -484,7 +412,7 @@ for col, (lbl, sym) in zip([c2, c3],
 
 st.divider()
 
-# 2. MARKET STRUCTURE (Intraday-only with VWAP fallback)
+# 2. MARKET STRUCTURE
 st.subheader("🧭 Market Structure (Intraday)")
 try:
     df5 = to_ist(fetch_ohlc(NIFTY, period="5d", interval="5m"))
@@ -492,7 +420,6 @@ try:
     session_df = df5[
         df5.index.date == latest_trade_date
     ].between_time("09:15", "15:30")
-
     verdict, price, vw, e9, e21, r = structure(session_df)
     if verdict == "Insufficient Data":
         st.info("Not enough candles for structure analysis yet.")
@@ -508,12 +435,11 @@ except DataError as e:
 
 st.divider()
 
-# 3. LIVE CANDLESTICK CHART WITH ZIGZAG H/L
+# 3. CANDLESTICK CHART
 st.subheader("📈 NIFTY Intraday Chart (Candlestick + ZigZag H/L)")
 try:
     df_intra = to_ist(fetch_ohlc(NIFTY, period="5d", interval="5m"))
     latest_trade_date = df_intra.index[-1].date()
-
     today_df = df_intra[
         df_intra.index.date == latest_trade_date
     ].between_time("09:15", "15:30").copy()
@@ -522,21 +448,15 @@ try:
         st.warning("Insufficient intraday candles for the latest session.")
     else:
         fig = draw_neat_chart(today_df)
-        st.plotly_chart(
-            fig,
-            use_container_width=True,
-            config={"displaylogo": False},
-        )
-
+        st.plotly_chart(fig, use_container_width=True,
+                        config={"displaylogo": False})
         last_time = today_df.index[-1]
         first_time = today_df.index[0]
-
         st.caption(
             f"Session: {first_time.strftime('%d-%m-%Y %H:%M %Z')} "
             f"to {last_time.strftime('%d-%m-%Y %H:%M %Z')} | "
             f"Candles received: {len(today_df)}"
         )
-
         with st.expander("Chart Feed Diagnostics"):
             st.write({
                 "Timezone": str(today_df.index.tz),
@@ -570,7 +490,6 @@ with colA:
             pdc = dy["Close"].iloc[-2]
             lv = pivots(pdh, pdl, pdc)
             top, bot = cpr(pdh, pdl, pdc)
-
             st.markdown(f"<span style='color:green;'>**R3 (Call)**: {lv['R3']:,.1f}</span>", unsafe_allow_html=True)
             st.markdown(f"<span style='color:green;'>**R2 (Call)**: {lv['R2']:,.1f}</span>", unsafe_allow_html=True)
             st.markdown(f"<span style='color:green;'>**R1 (Call)**: {lv['R1']:,.1f}</span>", unsafe_allow_html=True)
@@ -588,7 +507,6 @@ with colB:
     try:
         df5 = fetch_ohlc(NIFTY, period="5d", interval="5m")
         result = calculate_5m_gap_levels(df5)
-
         if result[0] is None:
             st.warning("not enough 5-min data")
         else:
@@ -624,4 +542,124 @@ for sym, dd in data.items():
     if len(dd) < 2:
         continue
     ch = (dd["Close"].iloc[-1] - dd["Close"].iloc[-2]) / dd["Close"].iloc[-2]
-    rows.append({"Symbol": sym.re
+    rows.append({
+        "Symbol": sym.replace(".NS", ""),
+        "Price": dd["Close"].iloc[-1],
+        "Change %": ch * 100,
+    })
+
+if rows:
+    tbl = pd.DataFrame(rows)
+    tbl = tbl[["Symbol", "Price", "Change %"]]
+    tbl['Price'] = pd.to_numeric(tbl['Price'], errors='coerce').round(2)
+    tbl = tbl.sort_values("Change %", ascending=False)
+    adv = (tbl["Change %"] > 0).sum()
+    dec = (tbl["Change %"] < 0).sum()
+    a, b, c = st.columns(3)
+    a.markdown(f"<span style='color:green;'>**Advancing**</span>", unsafe_allow_html=True)
+    a.markdown(f"<h2 style='color:green;'>{adv}</h2>", unsafe_allow_html=True)
+    b.markdown(f"<span style='color:red;'>**Declining**</span>", unsafe_allow_html=True)
+    b.markdown(f"<h2 style='color:red;'>{dec}</h2>", unsafe_allow_html=True)
+    c.metric("Avg Change %", f"{tbl['Change %'].mean():+.2f}%")
+
+    def color_symbol_and_change(row):
+        color = ('color: green; font-weight: bold'
+                 if row['Change %'] > 0
+                 else 'color: red; font-weight: bold')
+        return [color, '', color]
+
+    styled = tbl.style.apply(color_symbol_and_change, axis=1).format({
+        'Price': '{:.2f}',
+        'Change %': '{:+.2f}%',
+    })
+    st.dataframe(styled, use_container_width=True, hide_index=True)
+else:
+    st.warning("no breadth data")
+
+st.divider()
+
+# 6. BIG PLAYER
+st.subheader("🐋 Big Player Alert")
+st.caption(
+    "Volume spike (≥2.5×) + strong body (≥1.5×) "
+    "on the last completed 5-minute candle."
+)
+
+hits = []
+for sym, dd in data.items():
+    try:
+        dd = to_ist(dd)
+        latest_day = dd.index[-1].date()
+        session_dd = dd[
+            dd.index.date == latest_day
+        ].between_time("09:15", "15:30").copy()
+        sig = big_player(session_dd)
+        if sig:
+            hits.append({
+                "Symbol": sym.replace(".NS", ""),
+                "Signal": sig,
+                "Price": session_dd["Close"].iloc[-2],
+            })
+    except Exception as exc:
+        log.warning("Big-player calculation failed for %s: %s", sym, exc)
+
+if hits:
+    df_hits = pd.DataFrame(hits)
+    df_hits = df_hits[["Symbol", "Signal", "Price"]]
+    df_hits["Price"] = pd.to_numeric(
+        df_hits["Price"], errors="coerce"
+    ).round(2)
+
+    def color_symbol_and_signal(row):
+        if row["Signal"] == "BUY":
+            return [
+                "color: green; font-weight: bold",
+                "color: green; font-weight: bold",
+                "",
+            ]
+        return [
+            "color: red; font-weight: bold",
+            "color: red; font-weight: bold",
+            "",
+        ]
+
+    styled_hits = df_hits.style.apply(
+        color_symbol_and_signal, axis=1
+    ).format({"Price": "{:.2f}"})
+    st.dataframe(styled_hits, use_container_width=True, hide_index=True)
+
+    buy_count = sum(1 for hit in hits if hit["Signal"] == "BUY")
+    sell_count = len(hits) - buy_count
+    st.markdown(
+        f"<span style='color:green;'><b>Buy pressure: "
+        f"{buy_count}</b></span> | "
+        f"<span style='color:red;'><b>Sell pressure: "
+        f"{sell_count}</b></span>",
+        unsafe_allow_html=True,
+    )
+else:
+    st.info("No Big Player signals on the last completed 5-minute candle.")
+
+st.divider()
+
+# 7. NEWS
+st.subheader("📰 Tamil Financial News")
+news, news_status = load_news()
+
+if news:
+    for item in news:
+        source = item["source"]
+        title = item["title"]
+        link = item["link"]
+        if link:
+            st.markdown(f"- **{source}:** [{title}]({link})")
+        else:
+            st.markdown(f"- **{source}:** {title}")
+else:
+    st.warning(
+        "No news entries were returned. "
+        "Check the News Feed Diagnostics section."
+    )
+
+with st.expander("News Feed Diagnostics"):
+    st.dataframe(news_status, use_container_width=True, hide_index=True)
