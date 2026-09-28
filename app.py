@@ -1,4 +1,4 @@
-# app.py – NIFTY Ultimate Bot (All Fixes Applied)
+# app.py – NIFTY Ultimate Bot (Final Polish)
 import logging
 import feedparser
 import numpy as np
@@ -153,16 +153,16 @@ def calculate_3m_levels(df):
     }
     return gap_up, gap_down
 
-def zigzag_swing_points(df, threshold_pct=0.001, skip_first_n=3):
+def zigzag_swing_points(df, threshold_pct=0.001, skip_first_n=6):
     """
     ZigZag algorithm with fixes:
-    - skip_first_n: Skip the first few candles to avoid false H1
-    - threshold_pct: 0.1% move required to register a new swing
+    - skip_first_n=6: Skip the first 6 candles (09:15-09:45) to avoid day open being counted as H1
+    - threshold_pct=0.001 (0.1%): Sensitive enough to catch all swings
     """
     if len(df) < skip_first_n + 3:
         return pd.DataFrame(), pd.DataFrame()
     
-    # FIX 3: Skip first N candles to avoid day open being counted as H1
+    # FIX: Skip first N candles to avoid day open being counted as H1
     df_trimmed = df.iloc[skip_first_n:]
     
     highs = df_trimmed['High'].values
@@ -218,15 +218,17 @@ def zigzag_swing_points(df, threshold_pct=0.001, skip_first_n=3):
 def draw_neat_chart(today_df):
     fig = go.Figure()
     
+    # FIX: Darker black line (was 'black', now 'rgba(0,0,0,1)' with width 2)
     fig.add_trace(go.Scatter(
         x=today_df.index, y=today_df['Close'],
-        mode='lines', line=dict(color='black', width=1.5),
+        mode='lines', 
+        line=dict(color='rgba(0,0,0,1)', width=2.5),  # Darker & thicker black
         name="NIFTY",
         connectgaps=True
     ))
     
-    # FIX 3 & 4: Skip first 3 candles + use 0.1% threshold
-    swing_highs, swing_lows = zigzag_swing_points(today_df, threshold_pct=0.001, skip_first_n=3)
+    # FIX: Skip first 6 candles (09:15-09:45) to avoid false H1
+    swing_highs, swing_lows = zigzag_swing_points(today_df, threshold_pct=0.001, skip_first_n=6)
     
     for _, row in swing_highs.iterrows():
         fig.add_annotation(
@@ -295,7 +297,6 @@ def structure(df):
 
 @st.cache_data(ttl=180, show_spinner=False)
 def load_news(limit=6):
-    # FIX 5: Updated RSS feeds for better reliability
     feeds = [
         "https://www.dinamani.com/rss/business.xml",
         "https://tamil.business-standard.com/rss.xml",
@@ -312,7 +313,6 @@ def load_news(limit=6):
                     items.append((title, link))
         except Exception:
             log.exception("news fetch failed: %s", url)
-    # Remove duplicates
     seen = set()
     unique_items = []
     for t, l in items:
@@ -378,7 +378,7 @@ try:
             st.plotly_chart(fig, use_container_width=True)
             
             st.write("---")
-            st.info("ℹ️ **Chart Explanation:** 'H1, H2...' are the true Swing Highs (Green) and 'L1, L2...' are the true Swing Lows (Red). First 3 candles skipped to avoid false signals.")
+            st.info("ℹ️ **Chart Explanation:** 'H1, H2...' are the true Swing Highs (Green) and 'L1, L2...' are the true Swing Lows (Red). First 6 candles skipped to avoid false signals.")
         else:
             st.warning("Not enough intraday data for today.")
     else:
@@ -454,8 +454,8 @@ for sym, dd in data.items():
 if rows:
     tbl = pd.DataFrame(rows)
     tbl = tbl[["Symbol", "Price", "Change %"]]
-    # FIX 2: Round Price to 2 decimals
-    tbl['Price'] = tbl['Price'].round(2)
+    # FIX: Force numeric, then round to 2 decimals
+    tbl['Price'] = pd.to_numeric(tbl['Price'], errors='coerce').round(2)
     tbl = tbl.sort_values("Change %", ascending=False)
     
     adv = (tbl["Change %"] > 0).sum()
@@ -497,8 +497,8 @@ for sym, dd in data.items():
 if hits:
     df_hits = pd.DataFrame(hits)
     df_hits = df_hits[["Symbol", "Signal", "Price"]]
-    # FIX 1: Round Price to 2 decimals
-    df_hits['Price'] = df_hits['Price'].round(2)
+    # FIX: Force numeric, then round to 2 decimals
+    df_hits['Price'] = pd.to_numeric(df_hits['Price'], errors='coerce').round(2)
     
     def color_signal(val):
         if val == 'BUY':
@@ -518,7 +518,7 @@ else:
 
 st.divider()
 
-# 7. NEWS (FIXED: More RSS sources)
+# 7. NEWS
 st.subheader("📰 Tamil Financial News")
 news = load_news()
 if news:
