@@ -1,4 +1,4 @@
-# app.py - NIFTY Ultimate Bot (cleaned)
+# app.py - NIFTY Ultimate Bot (cleaned, fixed syntax)
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -615,4 +615,121 @@ with colA:
 with colB:
     st.subheader("🎯 5-Min Gap Levels (Zebu)")
     try:
-        df5g = f
+        # FIXED: removed the duplicate 'fdf5g' typo
+        df5g = fetch_ohlc(NIFTY, period="5d", interval="5m")
+        result = calculate_5m_gap_levels(df5g)
+        if result[0] is None:
+            st.warning("not enough 5-min data")
+        else:
+            gap_up, gap_down, gap_direction = result
+            if gap_direction == "NO GAP":
+                st.info("No gap detected.")
+            else:
+                up_active = gap_direction == "GAP UP"
+                tab1, tab2 = st.tabs([
+                    "📈 GAP UP (Active)" if up_active else "📈 GAP UP",
+                    "📉 GAP DOWN" if up_active else "📉 GAP DOWN (Active)",
+                ])
+                with tab1:
+                    for k, v in gap_up.items():
+                        st.write(f"**{k}**: {v:,.2f}")
+                with tab2:
+                    for k, v in gap_down.items():
+                        st.write(f"**{k}**: {v:,.2f}")
+    except DataError as e:
+        st.error(str(e))
+
+st.divider()
+
+# 5. BREADTH (change vs previous session close)
+st.subheader(f"🌐 Market Breadth ({len(HEAVYWEIGHTS)} Heavyweights)")
+data = fetch_many(tuple(HEAVYWEIGHTS))
+rows = []
+for sym, dd in data.items():
+    last_px, prev_px = session_change(dd)
+    if np.isnan(prev_px) or prev_px == 0:
+        continue
+    rows.append({
+        "Symbol": sym.replace(".NS", ""),
+        "Price": last_px,
+        "Change %": (last_px - prev_px) / prev_px * 100,
+    })
+
+if rows:
+    tbl = pd.DataFrame(rows)[["Symbol", "Price", "Change %"]]
+    tbl["Price"] = pd.to_numeric(tbl["Price"], errors="coerce").round(2)
+    tbl = tbl.sort_values("Change %", ascending=False)
+    adv = int((tbl["Change %"] > 0).sum())
+    dec = int((tbl["Change %"] < 0).sum())
+
+    a, b, c = st.columns(3)
+    a.markdown("<span style='color:green;'>**Advancing**</span>",
+               unsafe_allow_html=True)
+    a.markdown(f"<h2 style='color:green;'>{adv}</h2>", unsafe_allow_html=True)
+    b.markdown("<span style='color:red;'>**Declining**</span>",
+               unsafe_allow_html=True)
+    b.markdown(f"<h2 style='color:red;'>{dec}</h2>", unsafe_allow_html=True)
+    c.metric("Avg Change %", f"{tbl['Change %'].mean():+.2f}%")
+
+    def color_symbol_and_change(row):
+        color = ("color: green; font-weight: bold"
+                 if row["Change %"] > 0
+                 else "color: red; font-weight: bold")
+        return [color, "", color]
+
+    styled = tbl.style.apply(color_symbol_and_change, axis=1).format({
+        "Price": "{:.2f}",
+        "Change %": "{:+.2f}%",
+    })
+    st.dataframe(styled, use_container_width=True, hide_index=True)
+else:
+    st.warning("Breadth data unavailable right now.")
+
+st.divider()
+
+# 6. BIG PLAYER ENTRY
+st.subheader("🐘 Big Player Entry (பிக் பிளேயர்)")
+hits = big_player_scan(data)
+if hits:
+    bp_tbl = pd.DataFrame(hits)[["Stock", "Side", "Volume x", "Price", "Time"]]
+    bp_tbl = bp_tbl.sort_values("Volume x", ascending=False)
+    st.dataframe(bp_tbl, use_container_width=True, hide_index=True)
+    buys = int((bp_tbl["Side"] == "BUY").sum())
+    sells = int((bp_tbl["Side"] == "SELL").sum())
+    if buys > sells:
+        st.success(f"பெரிய வாங்குதல் அதிகம்: BUY {buys} / SELL {sells}")
+    elif sells > buys:
+        st.error(f"பெரிய விற்பனை அதிகம்: SELL {sells} / BUY {buys}")
+    else:
+        st.info(f"கலவையான நிலை: BUY {buys} / SELL {sells}")
+else:
+    st.caption("கடைசி 5m கேண்டிலில் பெரிய வால்யூம் என்ட்ரி எதுவும் இல்லை.")
+st.caption("Volume-spike based estimate, not actual FII/DII data.")
+
+st.divider()
+
+# 7. NEWS
+st.subheader("📰 Market News (தமிழ்)")
+try:
+    news_all, feed_status = load_news()
+except Exception as exc:
+    news_all, feed_status = [], pd.DataFrame()
+    st.error(f"News load failed: {exc}")
+
+matched = [
+    n for n in news_all
+    if any(k in n["title"].lower() for k in MARKET_KEYWORDS)
+]
+shown = (matched or news_all)[:10]
+if shown:
+    for n in shown:
+        st.markdown(f"- [{n['title']}]({n['link']})  \n  <small>{n['source']}</small>",
+                    unsafe_allow_html=True)
+else:
+    st.info("News feeds returned no headlines right now.")
+
+if not feed_status.empty:
+    with st.expander("News feed status"):
+        st.dataframe(feed_status, use_container_width=True, hide_index=True)
+
+st.caption("Educational tool only. Not financial advice.")
