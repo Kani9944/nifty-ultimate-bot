@@ -51,7 +51,11 @@ def gbreadth():
 
 @st.cache_data(ttl=300)
 def gnews():
-    feeds = ["https://tamil.goodreturns.in/rss/feeds/tamil-money-news-fb.xml", "https://www.moneycontrol.com/rss/marketreports.xml"]
+    feeds = [
+        "https://tamil.goodreturns.in/rss/feeds/tamil-money-news-fb.xml",
+        "https://tamil.oneindia.com/rss/feeds/tamil-business-fb.xml",
+        "https://tamil.samayam.com/business/rssfeed.cms"
+    ]
     o = []
     for u in feeds:
         try:
@@ -64,7 +68,7 @@ def gnews():
                     if t: o.append("[" + t + "](" + l + ")" if l else t)
                 if len(o) >= 6: break
         except: continue
-    return o[:6] if o else ["செய்திகள் கிடைக்கவில்லை."]
+    return o[:6] if o else ["தமிழ் பங்கு வர்த்தக செய்திகள் தற்போது கிடைக்கவில்லை."]
 
 try:
     h = gsd("^NSEI", "5d", "5m")
@@ -130,14 +134,44 @@ b5s = "{:+.2f}% (5m)".format(b5) if b5 is not None else "N/A"
 v5s = "{:+.2f}% (5m)".format(v5) if v5 is not None else "N/A"
 bps = "Rs {:,.2f}".format(bp) if bp is not None else "N/A"
 vvs = "{:.2f}".format(vv) if vv is not None else "N/A"
+n_clr = "#00b300" if (n5 is not None and n5 >= 0) else "#cc0000"
+b_clr = "#00b300" if (b5 is not None and b5 >= 0) else "#cc0000"
+v_clr = "#cc0000" if (v5 is not None and v5 >= 0) else "#00b300"
 
 st.caption("Session: " + str(sd))
-c1, c2 = st.columns(2)
-c1.metric("NIFTY 50", "Rs {:,.2f}".format(sp), n5s)
-c2.metric("BANK NIFTY", bps, b5s)
-c3, c4 = st.columns(2)
-c3.metric("INDIA VIX", vvs, v5s)
-c4.metric("PDH / PDL", "Rs {:,.0f}/{:,.0f}".format(pdh, pdl))
+
+st.markdown(
+    '<div style="display:flex;gap:8px;margin-bottom:8px;">'
+    '<div style="flex:1;padding:10px;background:#f8f9fa;border-radius:8px;border-left:4px solid #0052cc;">'
+    '<div style="font-size:12px;color:#666;">NIFTY 50</div>'
+    '<div style="font-size:20px;font-weight:bold;">Rs {:,.2f}</div>'.format(sp)
+    + '<div style="font-size:12px;color:' + n_clr + ';">' + n5s + '</div></div>'
+    '<div style="flex:1;padding:10px;background:#f8f9fa;border-radius:8px;border-left:4px solid #0052cc;">'
+    '<div style="font-size:12px;color:#666;">BANK NIFTY</div>'
+    '<div style="font-size:20px;font-weight:bold;">' + bps + '</div>'
+    '<div style="font-size:12px;color:' + b_clr + ';">' + b5s + '</div></div></div>',
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    '<div style="display:flex;justify-content:center;margin-bottom:8px;">'
+    '<div style="padding:10px 30px;background:#f8f9fa;border-radius:8px;border-left:4px solid #ff9900;text-align:center;">'
+    '<div style="font-size:12px;color:#666;">INDIA VIX</div>'
+    '<div style="font-size:20px;font-weight:bold;">' + vvs + '</div>'
+    '<div style="font-size:12px;color:' + v_clr + ';">' + v5s + '</div></div></div>',
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    '<div style="display:flex;gap:8px;">'
+    '<div style="flex:1;padding:10px;background:#f8f9fa;border-radius:8px;border-left:4px solid #cc0000;">'
+    '<div style="font-size:12px;color:#666;">PDH</div>'
+    '<div style="font-size:18px;font-weight:bold;">Rs {:,.2f}</div></div>'.format(pdh)
+    + '<div style="flex:1;padding:10px;background:#f8f9fa;border-radius:8px;border-left:4px solid #00b300;">'
+    '<div style="font-size:12px;color:#666;">PDL</div>'
+    '<div style="font-size:18px;font-weight:bold;">Rs {:,.2f}</div></div></div>'.format(pdl),
+    unsafe_allow_html=True,
+)
 
 st.markdown("---")
 st.subheader("Classic Pivots")
@@ -228,8 +262,8 @@ for s in sk:
     po = int(max(700000, 5200000 - (dd * 8000)))
     tcl += co
     tpt += po
-    if po > co * 1.3: sg = "Put Support"
-    elif co > po * 1.3: sg = "Call Resist"
+    if po > co * 1.08: sg = "Put Support"
+    elif co > po * 1.08: sg = "Call Resist"
     else: sg = "Neutral"
     rr.append({"Strike": "Rs {:,}".format(s) + (" (ATM)" if s == atm else ""), "Call OI": "{:.1f}L".format(co/100000), "Put OI": "{:.1f}L".format(po/100000), "Signal": sg})
 pcr = tpt / tcl if tcl > 0 else 0
@@ -241,13 +275,15 @@ st.dataframe(pd.DataFrame(rr), hide_index=True, use_container_width=True)
 
 st.markdown("---")
 st.subheader("OI Spike")
+mx_c = max([int(max(800000, 4500000 - (abs(sp - s) * 8500))) for s in sk])
+mx_p = max([int(max(700000, 5200000 - (abs(sp - s) * 8000))) for s in sk])
 spl = []
 for s in sk:
     dd = abs(sp - s)
     co = int(max(800000, 4500000 - (dd * 8500)))
     po = int(max(700000, 5200000 - (dd * 8000)))
-    if co > 4000000: spl.append("Rs {:,} Call - Resistance".format(s))
-    if po > 4500000: spl.append("Rs {:,} Put - Support".format(s))
+    if co >= mx_c: spl.append("Rs {:,} Call - Strong Resistance".format(s))
+    if po >= mx_p: spl.append("Rs {:,} Put - Strong Support".format(s))
 if spl:
     for x in spl: st.info(x)
 else: st.caption("No spike.")
@@ -285,7 +321,7 @@ cd = cd[cd["Close"] > 0].copy()
 if not cd.empty:
     fig = go.Figure()
     fig.add_hrect(y0=BC, y1=TC, fillcolor="LightSkyBlue", opacity=0.15, line_width=0, layer="below")
-    fig.add_trace(go.Scatter(x=cd.index, y=cd["Close"], mode="lines", name="Price", line=dict(color="#0052cc", width=2)))
+    fig.add_trace(go.Scatter(x=cd.index, y=cd["Close"], mode="lines+markers", name="Price", line=dict(color="#0052cc", width=2), marker=dict(color="#0052cc", size=8)))
     fig.add_trace(go.Scatter(x=cd.index, y=cd["VWAP"], mode="lines", name="VWAP", line=dict(color="#ff9900", width=1.5, dash="dash")))
     for nm, vl, cl in [("TC", TC, "#66b3ff"), ("Pivot", PP, "#0066cc"), ("BC", BC, "#3399ff"), ("R1", R1, "#ff6666"), ("S1", S1, "#66cc66"), ("PDH", pdh, "#cc0000"), ("PDL", pdl, "#00b300")]:
         fig.add_trace(go.Scatter(x=[cd.index[0], cd.index[-1]], y=[vl, vl], mode="lines", name=nm, line=dict(color=cl, width=1, dash="dot")))
@@ -396,7 +432,7 @@ else: rl = "Neutral"
 i4.metric("RSI", "{:.2f}".format(rv), rl)
 
 st.markdown("---")
-st.subheader("வர்த்தக செய்திகள்")
+st.subheader("தமிழ் பங்கு வர்த்தக செய்திகள்")
 for it in gnews():
     st.markdown(it)
 
