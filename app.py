@@ -1,4 +1,4 @@
-# app.py - NIFTY Ultimate Bot (ZigZag + Big Player Ratio)
+# app.py - NIFTY Ultimate Bot (Final Fixed Version)
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -97,7 +97,6 @@ def fetch_ohlc(symbol, period="5d", interval="5m"):
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_3m_data(symbol):
-    """Fetch 1-minute data and resample to 3-minute candles."""
     try:
         df = yf.Ticker(symbol).history(period="5d", interval="1m")
         if df is None or df.empty:
@@ -178,10 +177,6 @@ def cpr(h, l, c):
 
 
 def calculate_3m_gap_levels(df):
-    """
-    Zebu 3-minute candle gap levels.
-    Uses resampled 1-minute data for accurate 3-min candles.
-    """
     df = to_ist(df)
     df["Date"] = df.index.date
     dates = sorted(df["Date"].unique())
@@ -193,20 +188,15 @@ def calculate_3m_gap_levels(df):
     if prev_day.empty or today.empty:
         return None, None, None
 
-    # Previous day last 3-min candle
     x1_high = prev_day["High"].iloc[-1]
     x1_low = prev_day["Low"].iloc[-1]
-
-    # Today first 3-min candle
     x2_high = today["High"].iloc[0]
     x2_low = today["Low"].iloc[0]
 
-    # Gap Up calculations
     x3_up = x2_high - x1_high
     x4_up = x3_up / 2
     x5_up = x1_high - x4_up
 
-    # Gap Down calculations
     x3_down = x2_low - x1_low
     x4_down = x3_down / 2
     x5_down = x2_low + x4_down
@@ -239,7 +229,6 @@ def calculate_3m_gap_levels(df):
 
 
 def zigzag_swing_points(df, threshold_pct=0.0015):
-    """ZigZag with confirmed-only swings (no unconfirmed last pivot)."""
     if len(df) < 4:
         return pd.DataFrame(), pd.DataFrame()
     highs = df["High"].to_numpy()
@@ -623,4 +612,12 @@ with colB:
                 st.info("No gap detected.")
             else:
                 up_active = gap_direction == "GAP UP"
-               
+                tab1, tab2 = st.tabs([
+                    "📈 GAP UP (Active)" if up_active else "📈 GAP UP",
+                    "📉 GAP DOWN" if up_active else "📉 GAP DOWN (Active)",
+                ])
+                with tab1:
+                    for k, v in gap_up.items():
+                        st.write(f"**{k}**: {v:,.2f}")
+                with tab2:
+                    for k, v in 
