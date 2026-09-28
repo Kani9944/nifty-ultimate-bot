@@ -1,4 +1,4 @@
-# app.py – NIFTY Ultimate Bot (Final Version with ZigZag H/L & Full Colors)
+# app.py – NIFTY Ultimate Bot (Final Fixed Version)
 import logging
 import feedparser
 import numpy as np
@@ -153,10 +153,10 @@ def calculate_3m_levels(df):
     }
     return gap_up, gap_down
 
-def zigzag_swing_points(df, threshold_pct=0.0015):
+def zigzag_swing_points(df, threshold_pct=0.005):
     """
     ZigZag algorithm to find true Swing Highs and Lows.
-    threshold_pct = 0.15% move required to register a new swing.
+    threshold_pct = 0.5% move required to register a new swing (Reduced noise).
     """
     if len(df) < 3:
         return pd.DataFrame(), pd.DataFrame()
@@ -168,14 +168,9 @@ def zigzag_swing_points(df, threshold_pct=0.0015):
     swing_highs = []
     swing_lows = []
     
-    last_pivot_type = None
-    last_pivot_price = None
-    last_pivot_idx = None
-    
-    # Initialize
+    last_pivot_type = 'H'
     last_pivot_price = highs[0]
     last_pivot_idx = indices[0]
-    last_pivot_type = 'H'
     
     for i in range(1, len(df)):
         curr_high = highs[i]
@@ -187,23 +182,20 @@ def zigzag_swing_points(df, threshold_pct=0.0015):
                 last_pivot_price = curr_high
                 last_pivot_idx = curr_idx
             elif curr_low < last_pivot_price * (1 - threshold_pct):
-                # Confirmed a swing high
                 swing_highs.append({'Index': last_pivot_idx, 'Price': last_pivot_price})
                 last_pivot_type = 'L'
                 last_pivot_price = curr_low
                 last_pivot_idx = curr_idx
-        else: # last_pivot_type == 'L'
+        else:
             if curr_low < last_pivot_price:
                 last_pivot_price = curr_low
                 last_pivot_idx = curr_idx
             elif curr_high > last_pivot_price * (1 + threshold_pct):
-                # Confirmed a swing low
                 swing_lows.append({'Index': last_pivot_idx, 'Price': last_pivot_price})
                 last_pivot_type = 'H'
                 last_pivot_price = curr_high
                 last_pivot_idx = curr_idx
 
-    # Add the last pivot if it's valid
     if last_pivot_type == 'H':
         swing_highs.append({'Index': last_pivot_idx, 'Price': last_pivot_price})
     else:
@@ -212,7 +204,6 @@ def zigzag_swing_points(df, threshold_pct=0.0015):
     df_highs = pd.DataFrame(swing_highs)
     df_lows = pd.DataFrame(swing_lows)
     
-    # Assign sequential labels H1, H2... and L1, L2...
     if not df_highs.empty:
         df_highs['Label'] = [f"H{i+1}" for i in range(len(df_highs))]
     if not df_lows.empty:
@@ -221,10 +212,8 @@ def zigzag_swing_points(df, threshold_pct=0.0015):
     return df_highs, df_lows
 
 def draw_neat_chart(today_df):
-    """Draw a neat chart with ZigZag H1, H2 and L1, L2 annotations."""
     fig = go.Figure()
     
-    # Plot the price as a line
     fig.add_trace(go.Scatter(
         x=today_df.index, y=today_df['Close'],
         mode='lines', line=dict(color='black', width=1.5),
@@ -232,10 +221,9 @@ def draw_neat_chart(today_df):
         connectgaps=True
     ))
     
-    # Detect True Swing Highs and Lows using ZigZag
-    swing_highs, swing_lows = zigzag_swing_points(today_df, threshold_pct=0.0015)
+    # Use a larger threshold (0.5%) to avoid false signals
+    swing_highs, swing_lows = zigzag_swing_points(today_df, threshold_pct=0.005)
     
-    # Add 'H1, H2...' annotations for Swing Highs (GREEN)
     for _, row in swing_highs.iterrows():
         fig.add_annotation(
             x=row['Index'], y=row['Price'],
@@ -245,7 +233,6 @@ def draw_neat_chart(today_df):
             font=dict(color="green", size=14, family="Arial Black")
         )
         
-    # Add 'L1, L2...' annotations for Swing Lows (RED)
     for _, row in swing_lows.iterrows():
         fig.add_annotation(
             x=row['Index'], y=row['Price'],
@@ -375,7 +362,7 @@ try:
             st.plotly_chart(fig, use_container_width=True)
             
             st.write("---")
-            st.info("ℹ️ **Chart Explanation:** 'H1, H2...' are the true Swing Highs (Green) and 'L1, L2...' are the true Swing Lows (Red), calculated using the ZigZag algorithm.")
+            st.info("ℹ️ **Chart Explanation:** 'H1, H2...' are the true Swing Highs (Green) and 'L1, L2...' are the true Swing Lows (Red), calculated using the ZigZag algorithm with 0.5% threshold.")
         else:
             st.warning("Not enough intraday data for today.")
     else:
@@ -400,14 +387,12 @@ with colA:
             lv = pivots(pdh, pdl, pdc)
             top, bot = cpr(pdh, pdl, pdc)
             
-            # Display Call Side (Resistance) in GREEN
             st.markdown(f"<span style='color:green;'>**R3 (Call)**: {lv['R3']:,.1f}</span>", unsafe_allow_html=True)
             st.markdown(f"<span style='color:green;'>**R2 (Call)**: {lv['R2']:,.1f}</span>", unsafe_allow_html=True)
             st.markdown(f"<span style='color:green;'>**R1 (Call)**: {lv['R1']:,.1f}</span>", unsafe_allow_html=True)
             
             st.markdown(f"**Pivot**: {lv['Pivot']:,.1f}")
             
-            # Display Put Side (Support) in RED
             st.markdown(f"<span style='color:red;'>**S1 (Put)**: {lv['S1']:,.1f}</span>", unsafe_allow_html=True)
             st.markdown(f"<span style='color:red;'>**S2 (Put)**: {lv['S2']:,.1f}</span>", unsafe_allow_html=True)
             st.markdown(f"<span style='color:red;'>**S3 (Put)**: {lv['S3']:,.1f}</span>", unsafe_allow_html=True)
@@ -439,7 +424,7 @@ with colB:
 
 st.divider()
 
-# 5. BREADTH (Colored Advancing/Declining)
+# 5. BREADTH (Colored Advancing/Declining + Table)
 st.subheader("🌐 Market Breadth (18 Heavyweights)")
 data = fetch_many(tuple(HEAVYWEIGHTS))
 rows = []
@@ -454,6 +439,7 @@ if rows:
     tbl = pd.DataFrame(rows).sort_values("Change %", ascending=False)
     adv = (tbl["Change %"] > 0).sum()
     dec = (tbl["Change %"] < 0).sum()
+    
     a, b, c = st.columns(3)
     a.markdown(f"<span style='color:green;'>**Advancing**</span>", unsafe_allow_html=True)
     a.markdown(f"<h2 style='color:green;'>{adv}</h2>", unsafe_allow_html=True)
@@ -462,13 +448,23 @@ if rows:
     b.markdown(f"<h2 style='color:red;'>{dec}</h2>", unsafe_allow_html=True)
     
     c.metric("Avg Change %", f"{tbl['Change %'].mean():+.2f}%")
-    st.dataframe(tbl, use_container_width=True, hide_index=True)
+    
+    # Apply color to the Change % column in the table
+    def color_change(val):
+        if val > 0:
+            return 'color: green; font-weight: bold'
+        elif val < 0:
+            return 'color: red; font-weight: bold'
+        return ''
+        
+    st.dataframe(tbl.style.map(color_change, subset=['Change %']), 
+                 use_container_width=True, hide_index=True)
 else:
     st.warning("no breadth data")
 
 st.divider()
 
-# 6. BIG PLAYER (Colored BUY/SELL)
+# 6. BIG PLAYER (Colored BUY/SELL) - FIXED applymap to map
 st.subheader("🐋 Big Player Alert")
 st.caption("Volume spike (≥2.5×) + strong body (≥1.5×) on last completed 5-min candle")
 hits = []
@@ -481,7 +477,6 @@ for sym, dd in data.items():
 if hits:
     df_hits = pd.DataFrame(hits)
     
-    # Apply coloring to the DataFrame
     def color_signal(val):
         if val == 'BUY':
             return 'color: green; font-weight: bold'
@@ -489,7 +484,8 @@ if hits:
             return 'color: red; font-weight: bold'
         return ''
         
-    st.dataframe(df_hits.style.applymap(color_signal, subset=['Signal']), 
+    # FIXED: applymap -> map (for newer Pandas versions)
+    st.dataframe(df_hits.style.map(color_signal, subset=['Signal']), 
                  use_container_width=True, hide_index=True)
                  
     b = sum(1 for h in hits if h["Signal"] == "BUY")
