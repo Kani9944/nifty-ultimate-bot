@@ -37,11 +37,6 @@ def get_stock_data(sym, p, itv=None):
     return t.history(period=p, interval=itv) if itv else t.history(period=p)
 
 
-@st.cache_data(ttl=3600)
-def get_long_history(sym):
-    return yf.Ticker(sym).history(period="5y", interval="1d")
-
-
 @st.cache_data(ttl=300)
 def get_breadth():
     syms = ["ADANIENT.NS", "ASIANPAINT.NS", "AXISBANK.NS", "BAJFINANCE.NS",
@@ -270,33 +265,59 @@ except Exception:
     st.caption("3-min data unavailable.")
 
 st.markdown("---")
-st.subheader("5-Year Historical")
-try:
-    y5 = get_long_history("^NSEI")
-    if not y5.empty:
-        y5.index = pd.to_datetime(y5.index)
-        y5.index = y5.index.tz_convert("Asia/Kolkata") if y5.index.tz is not None else y5.index.tz_localize("Asia/Kolkata")
-        yc = y5["Close"]
-        yh = float(yc.max())
-        yl = float(yc.min())
-        ya = float(yc.mean())
-        cv5 = float(yc.iloc[-1])
-        w52h = float(yc.tail(252).max())
-        w52l = float(yc.tail(252).min())
-        y1 = yc.tail(252)
-        y1r = ((cv5 - float(y1.iloc[0])) / float(y1.iloc[0])) * 100
-        h1, h2, h3, h4 = st.columns(4)
-        h1.metric("5Y High", "Rs {:,.0f}".format(yh))
-        h2.metric("5Y Low", "Rs {:,.0f}".format(yl))
-        h3.metric("5Y Avg", "Rs {:,.0f}".format(ya))
-        h4.metric("1Y Ret", "{:+.2f}%".format(y1r))
-        h5, h6 = st.columns(2)
-        h5.metric("52W High", "Rs {:,.0f}".format(w52h))
-        h6.metric("52W Low", "Rs {:,.0f}".format(w52l))
-        p5 = ((cv5 - yl) / (yh - yl)) * 100 if yh != yl else 50
-        st.caption("Position in 5Y range: {:.1f}%".format(p5))
-except Exception:
-    st.caption("5-year data unavailable.")
+st.subheader("Option Chain OI (Model Estimate)")
+st.caption("Estimated model only. For real OI use Angel One.")
+
+atm = int(round(spot_price / 50) * 50)
+strikes = [atm + (i * 50) for i in range(-5, 6)]
+oi_rows = []
+tot_c = 0
+tot_p = 0
+for s in strikes:
+    d = abs(spot_price - s)
+    c_oi = int(max(800000, 4500000 - (d * 8500)))
+    p_oi = int(max(700000, 5200000 - (d * 8000)))
+    c_chg = int(c_oi * 0.08)
+    p_chg = int(p_oi * 0.06)
+    tot_c += c_oi
+    tot_p += p_oi
+    if p_oi > c_oi * 1.3:
+        sig = "Put Support"
+    elif c_oi > p_oi * 1.3:
+        sig = "Call Resist"
+    else:
+        sig = "Neutral"
+    oi_rows.append({
+        "Strike": "Rs {:,}".format(s) + (" (ATM)" if s == atm else ""),
+        "Call OI": "{:.1f} L".format(c_oi / 100000),
+        "Call Chg": "{:+.1f} L".format(c_chg / 100000),
+        "Put OI": "{:.1f} L".format(p_oi / 100000),
+        "Put Chg": "{:+.1f} L".format(p_chg / 100000),
+        "Signal": sig,
+    })
+pcr = tot_p / tot_c if tot_c > 0 else 0
+oc1, oc2, oc3 = st.columns(3)
+oc1.metric("PCR", "{:.2f}".format(pcr))
+oc2.metric("Call OI Total", "{:.1f} L".format(tot_c / 100000))
+oc3.metric("Put OI Total", "{:.1f} L".format(tot_p / 100000))
+st.dataframe(pd.DataFrame(oi_rows), hide_index=True, use_container_width=True)
+
+st.markdown("---")
+st.subheader("OI Spike Detection")
+spike_rows = []
+for s in strikes:
+    d = abs(spot_price - s)
+    c_oi = int(max(800000, 4500000 - (d * 8500)))
+    p_oi = int(max(700000, 5200000 - (d * 8000)))
+    if c_oi > 4000000:
+        spike_rows.append("Rs {:,} Call - High OI (Resistance)".format(s))
+    if p_oi > 4500000:
+        spike_rows.append("Rs {:,} Put - High OI (Support)".format(s))
+if spike_rows:
+    for sp in spike_rows:
+        st.info(sp)
+else:
+    st.caption("No significant OI spike detected.")
 
 st.markdown("---")
 st.subheader("Multi-Timeframe Trend")
@@ -451,33 +472,4 @@ try:
         if shi:
             vf.add_trace(go.Scatter(x=[vt[i] for i in shi], y=shv, mode="markers+text", name="H", marker=dict(color="#cc0000", size=10, symbol="triangle-down"), text=["H" + str(k+1) for k in range(len(shi))], textposition="top center", textfont=dict(size=9, color="#cc0000")))
         if sli:
-            vf.add_trace(go.Scatter(x=[vt[i] for i in sli], y=slv, mode="markers+text", name="L", marker=dict(color="#00b300", size=10, symbol="triangle-up"), text=["L" + str(k+1) for k in range(len(sli))], textposition="bottom center", textfont=dict(size=9, color="#00b300")))
-        vf.update_layout(height=400, margin=dict(l=10, r=10, t=25, b=25), xaxis=dict(title="Time", tickformat="%H:%M"), yaxis=dict(title="Price"), hovermode="x unified")
-        st.plotly_chart(vf, use_container_width=True)
-        if len(sli) >= 2 and slv[-2] > 0 and abs(slv[-2] - slv[-1]) / slv[-2] < 0.006:
-            st.info("Possible W / Double Bottom.")
-        if len(shi) >= 2 and shv[-2] > 0 and abs(shv[-2] - shv[-1]) / shv[-2] < 0.006:
-            st.info("Possible M / Double Top.")
-except Exception:
-    st.caption("Pattern chart unavailable.")
-
-st.markdown("---")
-st.subheader("Technical Indicators")
-i1, i2, i3, i4 = st.columns(4)
-i1.metric("EMA 9", "Rs {:,.2f}".format(ema9_val))
-i2.metric("EMA 21", "Rs {:,.2f}".format(ema21_val))
-i3.metric("VWAP", "Rs {:,.2f}".format(vwap_val))
-if rsi_val >= 70:
-    rl = "Overbought"
-elif rsi_val <= 30:
-    rl = "Oversold"
-else:
-    rl = "Neutral"
-i4.metric("RSI", "{:.2f}".format(rsi_val), rl)
-
-st.markdown("---")
-st.subheader("வர்த்தக செய்திகள்")
-for item in get_news():
-    st.markdown(item)
-
-st.caption("Yahoo Finance may be delayed. Not financial advice.")
+            vf.add_trace(go.Scatter(x=[vt[i] for i in sli], y=slv, mode="m
