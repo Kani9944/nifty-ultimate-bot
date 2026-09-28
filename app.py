@@ -1,4 +1,4 @@
-# app.py – NIFTY Ultimate Bot (Final Version with Detailed Pattern Analysis)
+# app.py – NIFTY Ultimate Bot (Live Intraday Pattern Version)
 import logging
 import feedparser
 import numpy as np
@@ -152,6 +152,51 @@ def calculate_3m_levels(df):
     }
     return gap_up, gap_down
 
+def detect_live_pattern(today_df, yesterday_high, yesterday_low):
+    """Detect live intraday pattern (W, M, Uptrend, Downtrend)."""
+    if len(today_df) < 15:
+        return "Not enough data", None, None, None
+        
+    today_high = today_df['High'].max()
+    today_low = today_df['Low'].min()
+    current_price = today_df['Close'].iloc[-1]
+    
+    # Find local peaks and troughs (swing highs/lows)
+    window = 5
+    today_df = today_df.copy()
+    today_df['LocalMin'] = today_df['Low'].rolling(window=window, center=True).min()
+    today_df['LocalMax'] = today_df['High'].rolling(window=window, center=True).max()
+    
+    recent_lows = today_df[today_df['Low'] == today_df['LocalMin']]['Low'].values[-3:]
+    recent_highs = today_df[today_df['High'] == today_df['LocalMax']]['High'].values[-3:]
+    
+    pattern = "Sideways / Undefined"
+    
+    # W-Pattern (Double Bottom)
+    if len(recent_lows) >= 2:
+        low1, low2 = recent_lows[-2], recent_lows[-1]
+        if abs(low2 - low1) / low1 < 0.0015:  # 0.15% tolerance
+            pattern = "W-Pattern (Double Bottom)"
+            
+    # M-Pattern (Double Top)
+    if len(recent_highs) >= 2:
+        high1, high2 = recent_highs[-2], recent_highs[-1]
+        if abs(high2 - high1) / high1 < 0.0015:
+            pattern = "M-Pattern (Double Top)"
+            
+    # Uptrend / Downtrend fallback
+    if pattern == "Sideways / Undefined":
+        if today_high > yesterday_high and today_low > yesterday_low:
+            pattern = "Uptrend (HH, HL)"
+        elif today_high < yesterday_high and today_low < yesterday_low:
+            pattern = "Downtrend (LH, LL)"
+        elif today_high > yesterday_high and today_low < yesterday_low:
+            pattern = "Expanding Volatility (HH, LL)"
+        elif today_high < yesterday_high and today_low > yesterday_low:
+            pattern = "Contracting Volatility (LH, HL)"
+            
+    return pattern, today_high, today_low, current_price
+
 def big_player(df, vol_mult=2.5, body_mult=1.5):
     if len(df) < 25:
         return None
@@ -238,71 +283,70 @@ except DataError as e:
 
 st.divider()
 
-# 3. DETAILED PATTERN ANALYSIS (UPDATED)
-st.subheader("📊 Today's Market Levels & Pattern Match")
+# 3. LIVE INTRADAY PATTERN ANALYSIS (UPDATED)
+st.subheader("📊 இன்றைய லைவ் மார்க்கெட் பேட்டன் (Live Intraday Pattern)")
 try:
-    daily_df = fetch_daily(NIFTY)
-    if len(daily_df) >= 3:
-        d2 = daily_df.iloc[-3]  # Day before yesterday
-        d1 = daily_df.iloc[-2]  # Yesterday
-        today = daily_df.iloc[-1]  # Today
+    # Fetch intraday 5-min data for the last 2 days
+    df_intra = fetch_ohlc(NIFTY, period="2d", interval="5m")
+    
+    # Get yesterday's data for comparison
+    df_intra['Date'] = df_intra.index.date
+    dates = sorted(df_intra['Date'].unique())
+    
+    if len(dates) >= 2:
+        yesterday_df = df_intra[df_intra['Date'] == dates[-2]]
+        today_df = df_intra[df_intra['Date'] == dates[-1]]
         
-        # Display Today's OHLC
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Today's Open", f"{today['Open']:,.2f}")
-        c2.metric("Today's High", f"{today['High']:,.2f}")
-        c3.metric("Today's Low", f"{today['Low']:,.2f}")
-        c4.metric("Current/Close", f"{today['Close']:,.2f}")
-        
-        st.write("---")
-        
-        # Pattern Logic
-        curr_hh = today['High'] > d1['High']
-        curr_hl = today['Low'] > d1['Low']
-        prev_hh = d1['High'] > d2['High']
-        prev_hl = d1['Low'] > d2['Low']
-        
-        def get_label(hh, hl):
-            if hh and hl: return "Uptrend (HH, HL)"
-            if not hh and not hl: return "Downtrend (LH, LL)"
-            if hh and not hl: return "Expanding Volatility (HH, LL)"
-            if not hh and hl: return "Contracting Volatility (LH, HL)"
-            return "Sideways"
+        if not today_df.empty and not yesterday_df.empty:
+            y_high = yesterday_df['High'].max()
+            y_low = yesterday_df['Low'].min()
             
-        curr_pattern = get_label(curr_hh, curr_hl)
-        prev_pattern = get_label(prev_hh, prev_hl)
-        
-        st.markdown(f"### 📈 Today's Pattern: **{curr_pattern}**")
-        
-        # Show comparison in detail
-        st.write("**Pattern Logic Check (Today vs Yesterday):**")
-        h_sym = "Higher High (HH)" if curr_hh else "Lower High (LH)"
-        l_sym = "Higher Low (HL)" if curr_hl else "Lower Low (LL)"
-        st.write(f"• High: Today **{today['High']:,.1f}** vs Yesterday **{d1['High']:,.1f}** ➔ {h_sym}")
-        st.write(f"• Low:  Today **{today['Low']:,.1f}** vs Yesterday **{d1['Low']:,.1f}** ➔ {l_sym}")
-        
-        st.write("---")
-        
-        # Actionable Insight
-        if "Downtrend" in curr_pattern:
-            st.error(f"🔻 **Market Implication:** Bearish trend continues. The market is making lower highs and lower lows. Selling on rallies (shorting) is favorable. Wait for the price to reach R1/R2 (Pivot Points) to enter a short trade.")
-        elif "Uptrend" in curr_pattern:
-            st.success(f"🔺 **Market Implication:** Bullish trend continues. The market is making higher highs and higher lows. Buying on dips (long) is favorable. Wait for the price to reach S1/S2 (Pivot Points) to enter a long trade.")
-        elif "Expanding" in curr_pattern:
-            st.warning(f"⚠️ **Market Implication:** High volatility. The market is moving wildly. Avoid trading until a clear direction emerges.")
+            # Detect Today's Live Pattern
+            pattern, t_high, t_low, curr_price = detect_live_pattern(today_df, y_high, y_low)
+            
+            # Display Today's Live OHLC
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Today's Live High", f"{t_high:,.2f}")
+            c2.metric("Today's Live Low", f"{t_low:,.2f}")
+            c3.metric("Current Price", f"{curr_price:,.2f}")
+            c4.metric("Yesterday's High/Low", f"{y_high:,.0f} / {y_low:,.0f}")
+            
+            st.write("---")
+            st.markdown(f"### 📈 Today's Live Pattern: **{pattern}**")
+            
+            # Display logic for transparency
+            st.write("**Pattern Logic Check (Today Live vs Yesterday):**")
+            h_sym = "Higher High (HH)" if t_high > y_high else "Lower High (LH)"
+            l_sym = "Higher Low (HL)" if t_low > y_low else "Lower Low (LL)"
+            st.write(f"• High: Today **{t_high:,.1f}** vs Yesterday **{y_high:,.1f}** ➔ {h_sym}")
+            st.write(f"• Low:  Today **{t_low:,.1f}** vs Yesterday **{y_low:,.1f}** ➔ {l_sym}")
+            
+            st.write("---")
+            
+            # Actionable Insight
+            if "W-Pattern" in pattern:
+                st.success(f"🚀 **Market Implication:** W-Pattern (Double Bottom) detected! The market is showing a strong reversal signal. A breakout above the recent high could lead to a massive upward move. **Long (Buy) positions are favorable.**")
+            elif "M-Pattern" in pattern:
+                st.error(f"🔻 **Market Implication:** M-Pattern (Double Top) detected! The market is showing a strong reversal signal. A breakdown below the recent low could lead to a massive downward move. **Short (Sell) positions are favorable.**")
+            elif "Downtrend" in pattern:
+                st.error(f"🔻 **Market Implication:** Bearish trend continues. The market is making lower highs and lower lows. Selling on rallies (shorting) is favorable. Wait for the price to reach R1/R2 (Pivot Points) to enter a short trade.")
+            elif "Uptrend" in pattern:
+                st.success(f"🔺 **Market Implication:** Bullish trend continues. The market is making higher highs and higher lows. Buying on dips (long) is favorable. Wait for the price to reach S1/S2 (Pivot Points) to enter a long trade.")
+            elif "Expanding" in pattern:
+                st.warning(f"⚠️ **Market Implication:** High volatility. The market is moving wildly. Avoid trading until a clear direction emerges.")
+            else:
+                st.info(f"➡️ **Market Implication:** Consolidation phase. The market is stuck in a range. Wait for a breakout or breakdown.")
+            
+            st.write("---")
+            
+            # Show the previous pattern comparison
+            st.write("**Comparison with Yesterday's Pattern:**")
+            st.info(f"Yesterday's Pattern was based on Daily candles. Today's Live Pattern is based on Intraday (5-min) candles. This shows how the market has evolved today.")
+            
         else:
-            st.info(f"➡️ **Market Implication:** Consolidation phase. The market is stuck in a range. Wait for a breakout or breakdown.")
-            
-        st.write("---")
-        
-        # Show the previous pattern comparison
-        if curr_pattern == prev_pattern:
-            st.success(f"✅ Today's pattern **matches** the previous pattern: {prev_pattern}")
-        else:
-            st.warning(f"🔄 Today's pattern **shifted** from previous: {prev_pattern} ➔ {curr_pattern}")
-            
+            st.warning("Not enough intraday data for today.")
     else:
-        st.warning("Not enough daily data for pattern analysis.")
+        st.warning("Not enough daily data to compare.")
 except DataError as e:
     st.error(str(e))
 
