@@ -1,4 +1,4 @@
-# app.py – NIFTY Ultimate Bot (clean version)
+# app.py – NIFTY Ultimate Bot (Zebu 3-Min Candle Logic)
 import logging
 import feedparser
 import numpy as np
@@ -26,10 +26,8 @@ HEAVYWEIGHTS = [
     "TITAN.NS", "SUNPHARMA.NS", "WIPRO.NS",
 ]
 
-
 class DataError(Exception):
     pass
-
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_ohlc(symbol, period="5d", interval="5m"):
@@ -41,11 +39,9 @@ def fetch_ohlc(symbol, period="5d", interval="5m"):
         raise DataError(f"no data for {symbol}")
     return df.dropna()
 
-
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_daily(symbol):
     return fetch_ohlc(symbol, period="1mo", interval="1d")
-
 
 @st.cache_data(ttl=120, show_spinner=False)
 def fetch_many(symbols, interval="5m"):
@@ -57,10 +53,8 @@ def fetch_many(symbols, interval="5m"):
             log.warning("skip %s: %s", s, e)
     return out
 
-
 def ema(s, span):
     return s.ewm(span=span, adjust=False).mean()
-
 
 def rsi(s, period=14):
     d = s.diff()
@@ -71,24 +65,25 @@ def rsi(s, period=14):
     rs = ag / al.replace(0, np.nan)
     return 100 - (100 / (1 + rs))
 
-
 def vwap(df):
     tp = (df["High"] + df["Low"] + df["Close"]) / 3
     v = df["Volume"].replace(0, np.nan)
     return tp.mul(v).groupby(df.index.date).cumsum() / v.groupby(df.index.date).cumsum()
 
-
 def pivots(h, l, c):
     p = (h + l + c) / 3
-    return {"Pivot": p, "R1": 2*p-l, "R2": p+(h-l), "R3": h+2*(p-l),
-            "S1": 2*p-h, "S2": p-(h-l), "S3": l-2*(h-p)}
-
+    r1 = 2 * p - l
+    s1 = 2 * p - h
+    r2 = p + (r1 - s1)
+    s2 = p - (r1 - s1)
+    r3 = h + 2 * (p - l)
+    s3 = l - 2 * (h - p)
+    return {"R3": r3, "R2": r2, "R1": r1, "Pivot": p, "S1": s1, "S2": s2, "S3": s3}
 
 def cpr(h, l, c):
     p = (h + l + c) / 3
     bc = (h + l) / 2
     return max(p, bc), min(p, bc)
-
 
 def atr(df, period=14):
     hl = df["High"] - df["Low"]
@@ -97,6 +92,44 @@ def atr(df, period=14):
     tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
     return tr.ewm(alpha=1/period, adjust=False).mean()
 
+def calculate_3m_levels(df):
+    """Calculate X1-X5 based on Zebu 3-min candle logic."""
+    df = df.copy()
+    df['Date'] = df.index.date
+    dates = sorted(df['Date'].unique())
+    
+    if len(dates) < 2:
+        return None, None
+        
+    prev_day = df[df['Date'] == dates[-2]]
+    today = df[df['Date'] == dates[-1]]
+    
+    if prev_day.empty or today.empty:
+        return None, None
+        
+    # Gap Up Logic
+    x1_high = prev_day['High'].iloc[-1]
+    x2_high = today['High'].iloc[0]
+    x3_up = x2_high - x1_high
+    x4_up = x3_up / 2
+    x5_up = x1_high - x4_up
+    
+    # Gap Down Logic
+    x1_low = prev_day['Low'].iloc[-1]
+    x2_low = today['Low'].iloc[0]
+    x3_down = x2_low - x1_low
+    x4_down = x3_down / 2
+    x5_down = x2_low + x4_down
+    
+    gap_up = {
+        "X1": x1_high, "X2": x2_high, "X3": x3_up, 
+        "X4": x4_up, "X5": x5_up
+    }
+    gap_down = {
+        "X1": x1_low, "X2": x2_low, "X3": x3_down, 
+        "X4": x4_down, "X5": x5_down
+    }
+    return gap_up, gap_down
 
 def big_player(df, vol_mult=2.5, body_mult=1.5):
     if len(df) < 25:
@@ -113,7 +146,6 @@ def big_player(df, vol_mult=2.5, body_mult=1.5):
         return "BUY" if last["Close"] > last["Open"] else "SELL"
     return None
 
-
 def structure(df):
     c = df["Close"]
     price = c.iloc[-1]
@@ -126,7 +158,6 @@ def structure(df):
     if price < vw and e9 < e21 and r < 50:
         return "Bearish", price, vw, e9, e21, r
     return "Mixed", price, vw, e9, e21, r
-
 
 @st.cache_data(ttl=180, show_spinner=False)
 def load_news(limit=6):
@@ -143,7 +174,6 @@ def load_news(limit=6):
         except Exception:
             log.exception("news fetch failed: %s", url)
     return items[:limit]
-
 
 # ---------- UI ----------
 st.title("🇮🇳 NIFTY Ultimate Bot")
@@ -206,23 +236,21 @@ with colA:
         st.error(str(e))
 
 with colB:
-    st.subheader("🎯 Gap Analysis")
+    st.subheader("🎯 3-Min Gap Levels (Zebu)")
     try:
-        dy = fetch_daily(NIFTY)
-        if len(dy) < 2:
-            st.warning("not enough daily candles")
+        df3 = fetch_ohlc(NIFTY, period="5d", interval="3m")
+        gap_up, gap_down = calculate_3m_levels(df3)
+        
+        if gap_up is None:
+            st.warning("not enough 3-min data")
         else:
-            pc = dy["Close"].iloc[-2]
-            to = dy["Open"].iloc[-1]
-            g = to - pc
-            pct = g / pc * 100
-            if abs(pct) < 0.1:
-                st.info(f"No significant gap ({pct:+.2f}%)")
-            else:
-                st.metric("GAP UP" if g > 0 else "GAP DOWN",
-                          f"{g:+.2f} ({pct:+.2f}%)")
-                for i in range(1, 6):
-                    st.write(f"X{i}: **{pc + g*i/5:,.2f}**")
+            tab1, tab2 = st.tabs(["📈 GAP UP", "📉 GAP DOWN"])
+            with tab1:
+                for k, v in gap_up.items():
+                    st.write(f"**{k}**: {v:,.2f}")
+            with tab2:
+                for k, v in gap_down.items():
+                    st.write(f"**{k}**: {v:,.2f}")
     except DataError as e:
         st.error(str(e))
 
