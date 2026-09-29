@@ -554,3 +554,314 @@ def show_metric_from(col, label, df):
         diff = last - prev
         col.metric(label, f"{last:,.2f}",
                    f"{diff:+.2f} ({diff / prev * 100:+.2f}%)")
+# app.py - Streamlit UI for NIFTY Ultimate Bot
+import numpy as np
+import pandas as pd
+import streamlit as st
+from streamlit_autorefresh import st_autorefresh
+
+from nifty_core import (
+    REFRESH_INTERVAL_MS,
+    DataError, NIFTY, BANKNIFTY, VIX, INDEX_SYMBOLS, HEAVYWEIGHTS,
+    GLOBAL_MARKETS, MARKET_KEYWORDS,
+    to_ist, fetch_batch, fetch_one, fetch_daily,
+    session_change, show_metric_from, structure, draw_neat_chart,
+    pivots, cpr, calculate_5m_gap_levels, big_player_scan, load_news,
+)
+
+# ---------- PAGE CONFIG (must be first Streamlit call in entry script) ----------
+st.set_page_config(page_title="NIFTY Ultimate Bot", layout="wide")
+st_autorefresh(interval=REFRESH_INTERVAL_MS, key="refresh")
+
+# ---------- UI ----------
+st.title("🇮🇳 NIFTY Ultimate Bot")
+st.caption("Data via Yahoo Finance — may be delayed by up to 15 minutes.")
+
+index_cache = fetch_batch(tuple(INDEX_SYMBOLS), period="10d", interval="5m")
+
+# 1. MARKET OVERVIEW (change vs previous session close)
+st.subheader("📊 Market Overview")
+c1, c2, c3 = st.columns(3)
+for col, label, sym in [(c1, "NIFTY 50", NIFTY),
+                        (c2, "Bank Nifty", BANKNIFTY),
+                        (c3, "India VIX", VIX)]:
+    try:
+        show_metric_from(col, label, fetch_one(index_cache, sym))
+    except DataError as e:
+        col.error(str(e))
+
+st.divider()
+
+# 2. GLOBAL MARKETS (world sentiment - no free SGX/GIFT Nifty feed available)
+st.subheader("🌍 உலக பங்குச் சந்தை (Global Markets)")
+global_cache = fetch_batch(
+    tuple(sym for _, sym in GLOBAL_MARKETS), period="10d", interval="1d"
+)
+g_cols = st.columns(len(GLOBAL_MARKETS))
+for col, (label, sym) in zip(g_cols, GLOBAL_MARKETS):
+    try:
+        gdf = fetch_one(global_cache, sym)
+        last = float(gdf["Close"].iloc[-1])
+        prev = float(gdf["Close"].iloc[-2]) if len(gdf) > 1 else np.nan
+        if np.isnan(prev) or prev == 0:
+            col.metric(label, f"{last:,.0f}")
+        else:
+            diff = last - prev
+            col.metric(label, f"{last:,.0f}",
+                       f"{diff:+.2f} ({diff/prev*100:+.2f}%)")
+    except DataError:
+        col.metric(label, "N/A")
+st.caption("SGX/GIFT Nifty இலவச Yahoo Finance-ல் கிடைக்காததால் உலக indices காட்டப்படுகின்றன.")
+
+st.divider()
+
+# 3. MARKET STRUCTURE
+st.subheader("🧭 Market Structure (Intraday)")
+latest_trade_date = None
+try:
+    df5 = to_ist(fetch_one(index_cache, NIFTY))
+    latest_trade_date = df5.index[-1].date()
+    session_df = df5[
+        df5.index.date == latest_trade_date
+    ].between_time("09:15", "15:30")
+    verdict, price, vw, e9, e21, r = structure(session_df)
+    if verdict == "Insufficient Data":
+        st.info("Not enough candles for structure analysis yet.")
+    else:
+        icon = ("🟢" if "Bullish" in verdict
+                else ("🔴" if "Bearish" in verdict else "🟡"))
+        st.markdown(f"### {icon} {verdict}")
+        vw_str = f"{vw:,.1f}" if not pd.isna(vw) else "N/A (no volume)"
+        st.write(f"Price {price:,.1f} | VWAP {vw_str} | "
+                 f"EMA9 {e9:,.1f} | EMA21 {e21:,.1f} | RSI {r:.1f}")
+except DataError as e:
+    st.error(str(e))
+
+st.divider()
+
+# 4. CANDLESTICK CHART
+st.subheader("📈 NIFTY Intraday Chart (Candlestick + ZigZag H/L)")
+zz_pct = st.slider("ZigZag sensitivity (%)", 0.05, 0.50, 0.08, 0.01,
+                   key="zz_pct")
+try:
+    df_intra = to_ist(fetch_one(index_cache, NIFTY))
+    latest_trade_date = df_intra.index[-1].date()
+    today_df = df_intra[
+        df_intra.index.date == latest_trade_date
+    ].between_time("09:15", "15:30").copy()
+
+    if len(today_df) < 5:
+        st.warning("Insufficient intraday candles for the latest session.")
+    else:
+        fig = draw_neat_chart(today_df, threshold_pct=zz_pct / 100)
+        st.plotly_chart(fig, use_container_width=True,
+                        config={"displaylogo": False})
+        last_time = today_df.index[-1]
+        first_time = today_df.index[0]
+        st.caption(
+            f"Latest session: {first_time.strftime('%d-%m-%Y %H:%M %Z')} "
+            f"to {last_time.strftime('%d-%m-%Y %H:%M %Z')} | "
+            f"Candles received: {len(today_df)}"
+        )
+
+        prev_sessions = df_intra[df_intra.index.date < latest_trade_date]
+        first_open = float(today_df["Open"].iloc[0])
+        if prev_sessions.empty:
+            open_check = "No previous session in feed"
+        else:
+            prev_close_val = float(prev_sessions["Close"].iloc[-1])
+            gap_pts = first_open - prev_close_val
+            if abs(gap_pts) < 0.5:
+                open_check = (f"First candle Open {first_open:,.2f} equals "
+                              f"previous close {prev_close_val:,.2f} "
+                              "(Yahoo may not show the real opening gap)")
+            else:
+                open_check = (f"Open {first_open:,.2f} vs previous close "
+                              f"{prev_close_val:,.2f} ({gap_pts:+.2f} pts)")
+
+        diag = {
+            "Timezone": str(today_df.index.tz),
+            "First candle": str(today_df.index[0]),
+            "Last candle": str(today_df.index[-1]),
+            "Candle count": len(today_df),
+            "Open check": open_check,
+        }
+        diag["First candle OHLC"] = {
+            "Open": float(today_df["Open"].iloc[0]),
+            "High": float(today_df["High"].iloc[0]),
+            "Low": float(today_df["Low"].iloc[0]),
+            "Close": float(today_df["Close"].iloc[0]),
+        }
+        diag["Latest OHLC"] = {
+            "Open": float(today_df["Open"].iloc[-1]),
+            "High": float(today_df["High"].iloc[-1]),
+            "Low": float(today_df["Low"].iloc[-1]),
+            "Close": float(today_df["Close"].iloc[-1]),
+        }
+        with st.expander("Chart Feed Diagnostics"):
+            st.write(diag)
+            st.dataframe(today_df.tail(10), use_container_width=True)
+except DataError as e:
+    st.error(str(e))
+
+st.divider()
+
+# 5. PIVOTS & GAP LEVELS
+colA, colB = st.columns(2)
+with colA:
+    st.subheader("📐 Pivot Points (Zebu)")
+    try:
+        dy = to_ist(fetch_daily(NIFTY))
+        if len(dy) < 2:
+            st.warning("not enough daily candles")
+        else:
+            # Use the same reference trading day as the intraday view.
+            ref_date = latest_trade_date if latest_trade_date else dy.index[-1].date()
+            ref_idx = -2 if dy.index[-1].date() == ref_date else -1
+            pdh = dy["High"].iloc[ref_idx]
+            pdl = dy["Low"].iloc[ref_idx]
+            pdc = dy["Close"].iloc[ref_idx]
+            lv = pivots(pdh, pdl, pdc)
+            top, bot = cpr(pdh, pdl, pdc)
+            pivot_rows = [
+                ("R3 (Call)", lv["R3"], "green"),
+                ("R2 (Call)", lv["R2"], "green"),
+                ("R1 (Call)", lv["R1"], "green"),
+                ("Pivot", lv["Pivot"], None),
+                ("S1 (Put)", lv["S1"], "red"),
+                ("S2 (Put)", lv["S2"], "red"),
+                ("S3 (Put)", lv["S3"], "red"),
+                ("CPR Top", top, "green"),
+                ("CPR Bot", bot, "red"),
+            ]
+            for label, val, colr in pivot_rows:
+                if colr:
+                    st.markdown(
+                        f"<span style='color:{colr};'>**{label}**: {val:,.1f}</span>",
+                        unsafe_allow_html=True)
+                else:
+                    st.markdown(f"**{label}**: {val:,.1f}")
+            st.caption(f"Reference day: {dy.index[ref_idx].strftime('%d-%b-%Y')}")
+    except DataError as e:
+        st.error(str(e))
+
+with colB:
+    st.subheader("🎯 5-Min Gap Levels (Zebu)")
+    try:
+        df5g = fetch_one(index_cache, NIFTY)
+        result = calculate_5m_gap_levels(df5g)
+        if result[0] is None:
+            st.warning("not enough 5-min data")
+        else:
+            gap_up, gap_down, gap_direction = result
+            if gap_direction == "NO GAP":
+                st.info("No gap detected.")
+            else:
+                up_active = gap_direction == "GAP UP"
+                tab1, tab2 = st.tabs([
+                    "📈 GAP UP (Active)" if up_active else "📈 GAP UP",
+                    "📉 GAP DOWN" if up_active else "📉 GAP DOWN (Active)",
+                ])
+                with tab1:
+                    for k, v in gap_up.items():
+                        st.write(f"**{k}**: {v:,.2f}")
+                with tab2:
+                    for k, v in gap_down.items():
+                        st.write(f"**{k}**: {v:,.2f}")
+    except DataError as e:
+        st.error(str(e))
+
+st.divider()
+
+# 6. BREADTH (single batch call, change vs previous session close)
+st.subheader(f"🌐 Market Breadth ({len(HEAVYWEIGHTS)} Heavyweights)")
+hw_cache = fetch_batch(tuple(HEAVYWEIGHTS), period="10d", interval="5m")
+rows = []
+for sym, dd in hw_cache.items():
+    last_px, prev_px = session_change(dd)
+    if np.isnan(prev_px) or prev_px == 0:
+        continue
+    rows.append({
+        "Symbol": sym.replace(".NS", ""),
+        "Price": last_px,
+        "Change %": (last_px - prev_px) / prev_px * 100,
+    })
+
+if rows:
+    tbl = pd.DataFrame(rows)[["Symbol", "Price", "Change %"]]
+    tbl["Price"] = pd.to_numeric(tbl["Price"], errors="coerce").round(2)
+    tbl = tbl.sort_values("Change %", ascending=False)
+    adv = int((tbl["Change %"] > 0).sum())
+    dec = int((tbl["Change %"] < 0).sum())
+
+    a, b, c = st.columns(3)
+    a.markdown("<span style='color:green;'>**Advancing**</span>",
+               unsafe_allow_html=True)
+    a.markdown(f"<h2 style='color:green;'>{adv}</h2>", unsafe_allow_html=True)
+    b.markdown("<span style='color:red;'>**Declining**</span>",
+               unsafe_allow_html=True)
+    b.markdown(f"<h2 style='color:red;'>{dec}</h2>", unsafe_allow_html=True)
+    c.metric("Avg Change %", f"{tbl['Change %'].mean():+.2f}%")
+
+    def color_symbol_and_change(row):
+        color = ("color: green; font-weight: bold"
+                 if row["Change %"] > 0
+                 else "color: red; font-weight: bold")
+        return [color, "", color]
+
+    styled = tbl.style.apply(color_symbol_and_change, axis=1).format({
+        "Price": "{:.2f}",
+        "Change %": "{:+.2f}%",
+    })
+    st.dataframe(styled, use_container_width=True, hide_index=True)
+else:
+    st.warning("Breadth data unavailable right now.")
+
+st.divider()
+
+# 7. BIG PLAYER ENTRY (reuses the breadth batch - no extra network calls)
+st.subheader("🐘 Big Player Entry (பிக் பிளேயர்)")
+hits = big_player_scan(hw_cache)
+if hits:
+    bp_tbl = pd.DataFrame(hits)[["Stock", "Side", "Volume x", "Price", "Time"]]
+    bp_tbl = bp_tbl.sort_values("Volume x", ascending=False)
+    st.dataframe(bp_tbl, use_container_width=True, hide_index=True)
+    buys = int((bp_tbl["Side"] == "BUY").sum())
+    sells = int((bp_tbl["Side"] == "SELL").sum())
+    if buys > sells:
+        st.success(f"பெரிய வாங்குதல் அதிகம்: BUY {buys} / SELL {sells}")
+    elif sells > buys:
+        st.error(f"பெரிய விற்பனை அதிகம்: SELL {sells} / BUY {buys}")
+    else:
+        st.info(f"கலவையான நிலை: BUY {buys} / SELL {sells}")
+else:
+    st.caption("கடைசி 5m கேண்டிலில் பெரிய வால்யூம் என்ட்ரி எதுவும் இல்லை.")
+st.caption("Volume-spike based estimate, not actual FII/DII data.")
+
+st.divider()
+
+# 8. NEWS
+st.subheader("📰 Market News (தமிழ்)")
+try:
+    news_all, feed_status = load_news()
+except Exception as exc:
+    news_all, feed_status = [], pd.DataFrame()
+    st.error(f"News load failed: {exc}")
+
+matched = [
+    n for n in news_all
+    if any(k in n["title"].lower() for k in MARKET_KEYWORDS)
+]
+shown = (matched or news_all)[:10]
+if shown:
+    for n in shown:
+        st.markdown(f"- [{n['title']}]({n['link']})  \n  <small>{n['source']}</small>",
+                    unsafe_allow_html=True)
+else:
+    st.info("News feeds returned no headlines right now.")
+
+if not feed_status.empty:
+    with st.expander("News feed status"):
+        st.dataframe(feed_status, use_container_width=True, hide_index=True)
+
+st.caption("Educational tool only. Not financial advice.")
