@@ -10,16 +10,12 @@ import plotly.graph_objects as go
 import requests
 import streamlit as st
 import yfinance as yf
-from streamlit_autorefresh import st_autorefresh
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("nifty-bot")
 
 IST = ZoneInfo("Asia/Kolkata")
 
-# NOTE: st.set_page_config + st_autorefresh MUST be called from app.py
-# (Streamlit page config can only be set once, and only in the entry script).
-# We keep the 90s refresh interval as a module constant so app.py can use it.
 REFRESH_INTERVAL_MS = 90_000
 
 NIFTY = "^NSEI"
@@ -35,8 +31,6 @@ HEAVYWEIGHTS = [
     "TITAN.NS", "SUNPHARMA.NS", "WIPRO.NS",
 ]
 
-# Free yfinance has no reliable SGX/GIFT Nifty feed, so global sentiment
-# is shown via major world indices instead.
 GLOBAL_MARKETS = [
     ("Dow Jones", "^DJI"),
     ("Nasdaq", "^IXIC"),
@@ -60,7 +54,6 @@ class DataError(Exception):
 # ---------- TIMEZONE HELPERS ----------
 
 def to_ist(df):
-    """Convert a DataFrame's index to IST (tz-aware). Handles tz-naive input."""
     if df is None or df.empty:
         return df
     df = df.copy()
@@ -76,7 +69,6 @@ def today_ist():
 
 
 def get_confirmed_candles(df, interval_minutes=5):
-    """Drop the last candle if it is still forming."""
     if df.empty:
         return df.copy()
     now_ist = datetime.now(IST)
@@ -90,7 +82,6 @@ def get_confirmed_candles(df, interval_minutes=5):
 
 
 def session_change(df):
-    """Return (last close, previous session close) from intraday/daily data."""
     df = to_ist(df)
     if df is None or df.empty:
         return np.nan, np.nan
@@ -103,12 +94,9 @@ def session_change(df):
 
 
 # ---------- BATCHED DATA FETCHING ----------
-# One yf.download call per group instead of one call per symbol - this is
-# the main speed fix (previously ~22 sequential network calls every refresh).
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_batch(symbols, period="10d", interval="5m"):
-    """Fetch many symbols in a single yf.download call. Returns {symbol: DataFrame}."""
     symbols = list(symbols)
     if not symbols:
         return {}
@@ -132,10 +120,8 @@ def fetch_batch(symbols, period="10d", interval="5m"):
 
     out = {}
 
-    # Case A: MultiIndex columns -> detect which level holds the symbol.
     if isinstance(raw.columns, pd.MultiIndex):
         lvl0 = list(raw.columns.get_level_values(0))
-        # If any of our requested symbols sits in level 0, symbols are first.
         sym_level = 0 if any(s in lvl0 for s in symbols) else 1
         for sym in symbols:
             try:
@@ -146,7 +132,6 @@ def fetch_batch(symbols, period="10d", interval="5m"):
             if not d.empty:
                 out[sym] = d
 
-    # Case B: single-level columns -> only valid when exactly one symbol requested.
     elif len(symbols) == 1:
         d = raw.dropna(subset=["Open", "High", "Low", "Close"], how="any")
         if not d.empty:
@@ -156,7 +141,6 @@ def fetch_batch(symbols, period="10d", interval="5m"):
 
 
 def fetch_one(cache, symbol):
-    """Pull one symbol's frame out of a fetch_batch() result, or raise."""
     df = cache.get(symbol)
     if df is None or df.empty:
         raise DataError(f"no data for {symbol}")
@@ -165,7 +149,6 @@ def fetch_one(cache, symbol):
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_daily(symbol):
-    """Daily candles, tz-normalised to IST."""
     try:
         df = yf.Ticker(symbol).history(period="1mo", interval="1d")
     except Exception as exc:
@@ -273,7 +256,6 @@ def calculate_5m_gap_levels(df):
 
 
 def zigzag_swing_points(df, threshold_pct=0.0008):
-    """ZigZag swing high/low detection. Default 0.08% is intraday-friendly."""
     if len(df) < 4:
         return pd.DataFrame(), pd.DataFrame()
     highs = df["High"].to_numpy()
@@ -404,10 +386,6 @@ def draw_neat_chart(today_df, threshold_pct=0.0008):
 
 def big_player(df, vol_mult=2.5, body_mult=1.5, lookback=20,
                body_to_range_min=0.6):
-    """Check the last confirmed 5m candle for a volume + body spike.
-
-    body_to_range_min filters out wicky/doji candles (needs >= 60% body/range).
-    """
     comp = get_confirmed_candles(df, interval_minutes=5)
     if len(comp) < lookback + 2:
         return None
@@ -424,7 +402,7 @@ def big_player(df, vol_mult=2.5, body_mult=1.5, lookback=20,
         return None
     body_ratio = body / rng
     if body_ratio < body_to_range_min:
-        return None  # wicky candle -> unreliable direction
+        return None
 
     ratio = last["Volume"] / av
     if ratio >= vol_mult and body >= body_mult * ab:
@@ -454,10 +432,6 @@ def big_player_scan(data):
 # ---------- MARKET STRUCTURE ----------
 
 def structure(session_df):
-    """Return (verdict, price, vwap, ema9, ema21, rsi).
-
-    Returns 'Insufficient Data' if any indicator is NaN.
-    """
     if len(session_df) < 25:
         return "Insufficient Data", np.nan, np.nan, np.nan, np.nan, np.nan
     c = session_df["Close"]
@@ -553,8 +527,7 @@ def show_metric_from(col, label, df):
     else:
         diff = last - prev
         col.metric(label, f"{last:,.2f}",
-                   f"{diff:+.2f} ({diff / prev * 100:+.2f}%)")
-# app.py - Streamlit UI for NIFTY Ultimate Bot
+                   f"{diff:+.2f} ({diff / prev * 100:+.2f}%)")# app.py - Streamlit UI for NIFTY Ultimate Bot
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -569,7 +542,7 @@ from nifty_core import (
     pivots, cpr, calculate_5m_gap_levels, big_player_scan, load_news,
 )
 
-# ---------- PAGE CONFIG (must be first Streamlit call in entry script) ----------
+# ---------- PAGE CONFIG ----------
 st.set_page_config(page_title="NIFTY Ultimate Bot", layout="wide")
 st_autorefresh(interval=REFRESH_INTERVAL_MS, key="refresh")
 
@@ -579,7 +552,7 @@ st.caption("Data via Yahoo Finance — may be delayed by up to 15 minutes.")
 
 index_cache = fetch_batch(tuple(INDEX_SYMBOLS), period="10d", interval="5m")
 
-# 1. MARKET OVERVIEW (change vs previous session close)
+# 1. MARKET OVERVIEW
 st.subheader("📊 Market Overview")
 c1, c2, c3 = st.columns(3)
 for col, label, sym in [(c1, "NIFTY 50", NIFTY),
@@ -592,7 +565,7 @@ for col, label, sym in [(c1, "NIFTY 50", NIFTY),
 
 st.divider()
 
-# 2. GLOBAL MARKETS (world sentiment - no free SGX/GIFT Nifty feed available)
+# 2. GLOBAL MARKETS
 st.subheader("🌍 உலக பங்குச் சந்தை (Global Markets)")
 global_cache = fetch_batch(
     tuple(sym for _, sym in GLOBAL_MARKETS), period="10d", interval="1d"
@@ -715,7 +688,6 @@ with colA:
         if len(dy) < 2:
             st.warning("not enough daily candles")
         else:
-            # Use the same reference trading day as the intraday view.
             ref_date = latest_trade_date if latest_trade_date else dy.index[-1].date()
             ref_idx = -2 if dy.index[-1].date() == ref_date else -1
             pdh = dy["High"].iloc[ref_idx]
@@ -773,7 +745,7 @@ with colB:
 
 st.divider()
 
-# 6. BREADTH (single batch call, change vs previous session close)
+# 6. BREADTH
 st.subheader(f"🌐 Market Breadth ({len(HEAVYWEIGHTS)} Heavyweights)")
 hw_cache = fetch_batch(tuple(HEAVYWEIGHTS), period="10d", interval="5m")
 rows = []
@@ -819,7 +791,7 @@ else:
 
 st.divider()
 
-# 7. BIG PLAYER ENTRY (reuses the breadth batch - no extra network calls)
+# 7. BIG PLAYER ENTRY
 st.subheader("🐘 Big Player Entry (பிக் பிளேயர்)")
 hits = big_player_scan(hw_cache)
 if hits:
