@@ -1,4 +1,4 @@
-app.py - NIFTY Ultimate Bot (cleaned, faster, + Global Markets)
+# app.py - NIFTY Ultimate Bot (cleaned, faster, + Global Markets)
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
