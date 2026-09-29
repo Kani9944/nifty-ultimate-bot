@@ -1,4 +1,4 @@
-# nifty_core.py - data + indicator logic for NIFTY Ultimate Bot
+# app.py - Complete Single File for NIFTY Ultimate Bot
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -9,13 +9,14 @@ import pandas as pd
 import plotly.graph_objects as go
 import requests
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 import yfinance as yf
 
+# ---------- CONFIG & CONSTANTS ----------
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("nifty-bot")
 
 IST = ZoneInfo("Asia/Kolkata")
-
 REFRESH_INTERVAL_MS = 90_000
 
 NIFTY = "^NSEI"
@@ -51,7 +52,7 @@ class DataError(Exception):
     pass
 
 
-# ---------- TIMEZONE HELPERS ----------
+# ---------- TIMEZONE & DATA HELPERS ----------
 
 def to_ist(df):
     if df is None or df.empty:
@@ -121,7 +122,6 @@ def fetch_batch(symbols, period="10d", interval="5m"):
         return {}
 
     out = {}
-
     if isinstance(raw.columns, pd.MultiIndex):
         lvl0 = list(raw.columns.get_level_values(0))
         sym_level = 0 if any(s in lvl0 for s in symbols) else 1
@@ -133,7 +133,6 @@ def fetch_batch(symbols, period="10d", interval="5m"):
             d = d.dropna(subset=["Open", "High", "Low", "Close"], how="any")
             if not d.empty:
                 out[sym] = d
-
     elif len(symbols) == 1:
         d = raw.dropna(subset=["Open", "High", "Low", "Close"], how="any")
         if not d.empty:
@@ -530,26 +529,15 @@ def show_metric_from(col, label, df):
         diff = last - prev
         col.metric(label, f"{last:,.2f}",
                    f"{diff:+.2f} ({diff / prev * 100:+.2f}%)")
-        # app.py - Streamlit UI for NIFTY Ultimate Bot
-import numpy as np
-import pandas as pd
-import streamlit as st
-from streamlit_autorefresh import st_autorefresh
 
-from nifty_core import (
-    REFRESH_INTERVAL_MS,
-    DataError, NIFTY, BANKNIFTY, VIX, INDEX_SYMBOLS, HEAVYWEIGHTS,
-    GLOBAL_MARKETS, MARKET_KEYWORDS,
-    to_ist, fetch_batch, fetch_one, fetch_daily,
-    session_change, show_metric_from, structure, draw_neat_chart,
-    pivots, cpr, calculate_5m_gap_levels, big_player_scan, load_news,
-)
 
-# ---------- PAGE CONFIG ----------
+# ==========================================
+# ---------- STREAMLIT APP UI --------------
+# ==========================================
+
 st.set_page_config(page_title="NIFTY Ultimate Bot", layout="wide")
 st_autorefresh(interval=REFRESH_INTERVAL_MS, key="refresh")
 
-# ---------- UI ----------
 st.title("🇮🇳 NIFTY Ultimate Bot")
 st.caption("Data via Yahoo Finance — may be delayed by up to 15 minutes.")
 
@@ -840,4 +828,3 @@ if not feed_status.empty:
         st.dataframe(feed_status, use_container_width=True, hide_index=True)
 
 st.caption("Educational tool only. Not financial advice.")
-    
