@@ -1,8 +1,8 @@
 streamlit
 streamlit-autorefresh
 yfinance
+feedparser
 pandas
 numpy
 plotly
-feedparser
 requests
