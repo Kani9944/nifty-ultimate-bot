@@ -86,6 +86,8 @@ def session_change(df):
     if df is None or df.empty:
         return np.nan, np.nan
     dates = sorted(set(df.index.date))
+    if not dates:
+        return np.nan, np.nan
     last = float(df["Close"].iloc[-1])
     if len(dates) < 2:
         return last, np.nan
@@ -527,7 +529,8 @@ def show_metric_from(col, label, df):
     else:
         diff = last - prev
         col.metric(label, f"{last:,.2f}",
-                   f"{diff:+.2f} ({diff / prev * 100:+.2f}%)")# app.py - Streamlit UI for NIFTY Ultimate Bot
+                   f"{diff:+.2f} ({diff / prev * 100:+.2f}%)")
+        # app.py - Streamlit UI for NIFTY Ultimate Bot
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -837,3 +840,4 @@ if not feed_status.empty:
         st.dataframe(feed_status, use_container_width=True, hide_index=True)
 
 st.caption("Educational tool only. Not financial advice.")
+    
