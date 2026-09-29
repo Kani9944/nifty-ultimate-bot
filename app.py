@@ -1,4 +1,4 @@
-# app.py - NIFTY Ultimate Bot (compact, no syntax errors)
+app.py - NIFTY Ultimate Bot (cleaned, faster, + Global Markets)
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -12,8 +12,8 @@ import streamlit as st
 import yfinance as yf
 from streamlit_autorefresh import st_autorefresh
 
-log = logging.getLogger("nifty-bot")
 logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("nifty-bot")
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -23,6 +23,7 @@ st_autorefresh(interval=60000, key="refresh")
 NIFTY = "^NSEI"
 BANKNIFTY = "^NSEBANK"
 VIX = "^INDIAVIX"
+INDEX_SYMBOLS = [NIFTY, BANKNIFTY, VIX]
 
 HEAVYWEIGHTS = [
     "RELIANCE.NS", "HDFCBANK.NS", "ICICIBANK.NS", "INFY.NS",
@@ -30,6 +31,17 @@ HEAVYWEIGHTS = [
     "KOTAKBANK.NS", "BHARTIARTL.NS", "HINDUNILVR.NS",
     "MARUTI.NS", "ASIANPAINT.NS", "BAJFINANCE.NS",
     "TITAN.NS", "SUNPHARMA.NS", "WIPRO.NS",
+]
+
+# Free yfinance has no reliable SGX/GIFT Nifty feed, so global sentiment
+# is shown via major world indices instead.
+GLOBAL_MARKETS = [
+    ("Dow Jones", "^DJI"),
+    ("Nasdaq", "^IXIC"),
+    ("S&P 500", "^GSPC"),
+    ("Nikkei 225", "^N225"),
+    ("Hang Seng", "^HSI"),
+    ("FTSE 100", "^FTSE"),
 ]
 
 MARKET_KEYWORDS = [
@@ -42,6 +54,8 @@ MARKET_KEYWORDS = [
 class DataError(Exception):
     pass
 
+
+# ---------- TIMEZONE HELPERS ----------
 
 def to_ist(df):
     df = df.copy()
@@ -57,6 +71,7 @@ def today_ist():
 
 
 def get_confirmed_candles(df, interval_minutes=5):
+    """Drop the last candle if it is still forming."""
     if df.empty:
         return df.copy()
     now_ist = datetime.now(IST)
@@ -70,6 +85,7 @@ def get_confirmed_candles(df, interval_minutes=5):
 
 
 def session_change(df):
+    """Return (last close, previous session close) from intraday/daily data."""
     df = to_ist(df)
     dates = sorted(set(df.index.date))
     last = float(df["Close"].iloc[-1])
@@ -79,10 +95,58 @@ def session_change(df):
     return last, float(prev)
 
 
+# ---------- BATCHED DATA FETCHING ----------
+# One yf.download call per group instead of one call per symbol - this is
+# the main speed fix (previously ~22 sequential network calls every refresh).
+
 @st.cache_data(ttl=60, show_spinner=False)
-def fetch_ohlc(symbol, period="5d", interval="5m"):
+def fetch_batch(symbols, period="5d", interval="5m"):
+    symbols = list(symbols)
     try:
-        df = yf.Ticker(symbol).history(period=period, interval=interval)
+        raw = yf.download(
+            tickers=" ".join(symbols),
+            period=period,
+            interval=interval,
+            group_by="ticker",
+            threads=True,
+            progress=False,
+            auto_adjust=False,
+        )
+    except Exception as exc:
+        log.warning("batch download failed %s: %s", symbols, exc)
+        return {}
+
+    out = {}
+    if raw is None or raw.empty:
+        return out
+
+    if isinstance(raw.columns, pd.MultiIndex):
+        top = set(raw.columns.get_level_values(0))
+        for sym in symbols:
+            if sym not in top:
+                continue
+            d = raw[sym].dropna(subset=["Open", "High", "Low", "Close"], how="any")
+            if not d.empty:
+                out[sym] = d
+    elif len(symbols) == 1:
+        d = raw.dropna(subset=["Open", "High", "Low", "Close"], how="any")
+        if not d.empty:
+            out[symbols[0]] = d
+    return out
+
+
+def fetch_one(cache, symbol):
+    """Pull one symbol's frame out of a fetch_batch() result, or raise."""
+    df = cache.get(symbol)
+    if df is None or df.empty:
+        raise DataError(f"no data for {symbol}")
+    return df
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_daily(symbol):
+    try:
+        df = yf.Ticker(symbol).history(period="1mo", interval="1d")
     except Exception as exc:
         raise DataError(f"fetch failed for {symbol}: {exc}") from exc
     if df is None or df.empty:
@@ -90,38 +154,7 @@ def fetch_ohlc(symbol, period="5d", interval="5m"):
     return df.dropna(subset=["Open", "High", "Low", "Close"])
 
 
-@st.cache_data(ttl=60, show_spinner=False)
-def fetch_3m_data(symbol):
-    try:
-        df = yf.Ticker(symbol).history(period="5d", interval="1m")
-        if df is None or df.empty:
-            raise DataError(f"no 1m data for {symbol}")
-        df = to_ist(df).dropna(subset=["Open", "High", "Low", "Close"])
-        df = df.between_time("09:15", "15:30")
-        df_3m = df.resample("3min").agg({
-            "Open": "first", "High": "max", "Low": "min",
-            "Close": "last", "Volume": "sum",
-        }).dropna(subset=["Open", "High", "Low", "Close"])
-        return df_3m
-    except Exception as exc:
-        raise DataError(f"3m data failed for {symbol}: {exc}") from exc
-
-
-@st.cache_data(ttl=60, show_spinner=False)
-def fetch_daily(symbol):
-    return fetch_ohlc(symbol, period="1mo", interval="1d")
-
-
-@st.cache_data(ttl=60, show_spinner=False)
-def fetch_many(symbols, interval="5m"):
-    out = {}
-    for s in symbols:
-        try:
-            out[s] = fetch_ohlc(s, period="5d", interval=interval)
-        except DataError as e:
-            log.warning("skip %s: %s", s, e)
-    return out
-
+# ---------- INDICATORS ----------
 
 def ema(s, span):
     return s.ewm(span=span, adjust=False).mean()
@@ -143,10 +176,12 @@ def vwap(df):
     if volume.sum() <= 0:
         return pd.Series(np.nan, index=df.index)
     session = pd.Series(df.index.date, index=df.index)
-    cpv = (tp * volume).groupby(session).cumsum()
-    cv = volume.groupby(session).cumsum()
-    return cpv / cv.replace(0, np.nan)
+    cumulative_pv = (tp * volume).groupby(session).cumsum()
+    cumulative_volume = volume.groupby(session).cumsum()
+    return cumulative_pv / cumulative_volume.replace(0, np.nan)
 
+
+# ---------- ZEBU CALCULATIONS ----------
 
 def pivots(h, l, c):
     p = (h + l + c) / 3
@@ -166,7 +201,7 @@ def cpr(h, l, c):
     return max(p, bc), min(p, bc)
 
 
-def calculate_3m_gap_levels(df):
+def calculate_5m_gap_levels(df):
     df = to_ist(df)
     df["Date"] = df.index.date
     dates = sorted(df["Date"].unique())
@@ -178,31 +213,30 @@ def calculate_3m_gap_levels(df):
         return None, None, None
 
     x1_high = prev_day["High"].iloc[-1]
-    x1_low = prev_day["Low"].iloc[-1]
     x2_high = today["High"].iloc[0]
-    x2_low = today["Low"].iloc[0]
-
     x3_up = x2_high - x1_high
     x4_up = x3_up / 2
     x5_up = x1_high - x4_up
 
+    x1_low = prev_day["Low"].iloc[-1]
+    x2_low = today["Low"].iloc[0]
     x3_down = x2_low - x1_low
     x4_down = x3_down / 2
     x5_down = x2_low + x4_down
 
     gap_up = {
-        "X1 (Prev Last 3m High)": x1_high,
-        "X2 (Today First 3m High)": x2_high,
-        "X3 (X2 - X1)": x3_up,
-        "X4 (X3 / 2)": x4_up,
-        "X5 (Reversal = X1 - X4)": x5_up,
+        "X1 (Prev Close 5m High)": x1_high,
+        "X2 (Today Open 5m High)": x2_high,
+        "X3 (Difference X2-X1)": x3_up,
+        "X4 (Half of X3)": x4_up,
+        "X5 (Reversal Level X1-X4)": x5_up,
     }
     gap_down = {
-        "X1 (Prev Last 3m Low)": x1_low,
-        "X2 (Today First 3m Low)": x2_low,
-        "X3 (X2 - X1)": x3_down,
-        "X4 (X3 / 2)": x4_down,
-        "X5 (Reversal = X2 + X4)": x5_down,
+        "X1 (Prev Close 5m Low)": x1_low,
+        "X2 (Today Open 5m Low)": x2_low,
+        "X3 (Difference X2-X1)": x3_down,
+        "X4 (Half of X3)": x4_down,
+        "X5 (Reversal Level X2+X4)": x5_down,
     }
 
     prev_close = prev_day["Close"].iloc[-1]
@@ -213,7 +247,6 @@ def calculate_3m_gap_levels(df):
         gap_direction = "GAP DOWN"
     else:
         gap_direction = "NO GAP"
-
     return gap_up, gap_down, gap_direction
 
 
@@ -223,6 +256,7 @@ def zigzag_swing_points(df, threshold_pct=0.0015):
     highs = df["High"].to_numpy()
     lows = df["Low"].to_numpy()
     indices = df.index
+
     swing_highs = []
     swing_lows = []
     pivot_type = "H"
@@ -265,8 +299,10 @@ def draw_neat_chart(today_df, threshold_pct=0.0015):
     fig = go.Figure()
     fig.add_trace(go.Candlestick(
         x=today_df.index,
-        open=today_df["Open"], high=today_df["High"],
-        low=today_df["Low"], close=today_df["Close"],
+        open=today_df["Open"],
+        high=today_df["High"],
+        low=today_df["Low"],
+        close=today_df["Close"],
         name="NIFTY",
         increasing_line_color="#16A34A",
         decreasing_line_color="#DC2626",
@@ -323,20 +359,28 @@ def draw_neat_chart(today_df, threshold_pct=0.0015):
         hovermode="x unified",
         showlegend=False,
         xaxis=dict(
-            type="date", showgrid=True, gridcolor="#E5E7EB",
+            type="date",
+            showgrid=True,
+            gridcolor="#E5E7EB",
             tickformat="%H:%M",
             range=[f"{day} 09:10", f"{day} 15:35"],
             rangeslider=dict(visible=False),
         ),
         yaxis=dict(
-            title="NIFTY", showgrid=True, gridcolor="#E5E7EB",
-            side="right", tickformat=".0f",
+            title="NIFTY",
+            showgrid=True,
+            gridcolor="#E5E7EB",
+            side="right",
+            tickformat=".0f",
         ),
     )
     return fig
 
 
+# ---------- BIG PLAYER (VOLUME SPIKE) ----------
+
 def big_player(df, vol_mult=2.5, body_mult=1.5, lookback=20):
+    """Check the last confirmed 5m candle for a volume + body spike."""
     comp = get_confirmed_candles(df, interval_minutes=5)
     if len(comp) < lookback + 2:
         return None
@@ -372,6 +416,8 @@ def big_player_scan(data):
     return hits
 
 
+# ---------- MARKET STRUCTURE ----------
+
 def structure(session_df):
     if len(session_df) < 25:
         return "Insufficient Data", np.nan, np.nan, np.nan, np.nan, np.nan
@@ -393,6 +439,8 @@ def structure(session_df):
         return "Bearish", price, vw, e9, e21, r
     return "Mixed", price, vw, e9, e21, r
 
+
+# ---------- NEWS ----------
 
 @st.cache_data(ttl=300, show_spinner=False)
 def load_news(limit=60):
@@ -437,6 +485,7 @@ def load_news(limit=60):
                 "Entries": 0,
                 "Parser warning": str(exc)[:80],
             })
+
     seen = set()
     unique = []
     for item in items:
@@ -447,12 +496,9 @@ def load_news(limit=60):
     return unique[:limit], pd.DataFrame(status_rows)
 
 
-def show_metric(col, label, symbol):
-    try:
-        df = fetch_ohlc(symbol)
-    except DataError as e:
-        col.error(str(e))
-        return
+# ---------- UI HELPERS ----------
+
+def show_metric_from(col, label, df):
     last, prev = session_change(df)
     if np.isnan(prev) or prev == 0:
         col.metric(label, f"{last:,.2f}")
@@ -466,17 +512,47 @@ def show_metric(col, label, symbol):
 st.title("🇮🇳 NIFTY Ultimate Bot")
 st.caption("Data via Yahoo Finance - may be delayed by up to 15 minutes.")
 
+index_cache = fetch_batch(tuple(INDEX_SYMBOLS), period="5d", interval="5m")
+
+# 1. MARKET OVERVIEW (change vs previous session close)
 st.subheader("📊 Market Overview")
 c1, c2, c3 = st.columns(3)
-show_metric(c1, "NIFTY 50", NIFTY)
-show_metric(c2, "Bank Nifty", BANKNIFTY)
-show_metric(c3, "India VIX", VIX)
+for col, label, sym in [(c1, "NIFTY 50", NIFTY),
+                        (c2, "Bank Nifty", BANKNIFTY),
+                        (c3, "India VIX", VIX)]:
+    try:
+        show_metric_from(col, label, fetch_one(index_cache, sym))
+    except DataError as e:
+        col.error(str(e))
 
 st.divider()
 
+# 2. GLOBAL MARKETS (world sentiment - no free SGX/GIFT Nifty feed available)
+st.subheader("🌍 உலக பங்குச் சந்தை (Global Markets)")
+global_cache = fetch_batch(
+    tuple(sym for _, sym in GLOBAL_MARKETS), period="5d", interval="1d"
+)
+g_cols = st.columns(len(GLOBAL_MARKETS))
+for col, (label, sym) in zip(g_cols, GLOBAL_MARKETS):
+    try:
+        gdf = fetch_one(global_cache, sym)
+        last = float(gdf["Close"].iloc[-1])
+        prev = float(gdf["Close"].iloc[-2]) if len(gdf) > 1 else np.nan
+        if np.isnan(prev) or prev == 0:
+            col.metric(label, f"{last:,.0f}")
+        else:
+            diff = last - prev
+            col.metric(label, f"{last:,.0f}", f"{diff:+.2f} ({diff/prev*100:+.2f}%)")
+    except DataError:
+        col.metric(label, "N/A")
+st.caption("SGX/GIFT Nifty இலவச Yahoo Finance-ல் கிடைக்காததால் உலக indices காட்டப்படுகின்றன.")
+
+st.divider()
+
+# 3. MARKET STRUCTURE
 st.subheader("🧭 Market Structure (Intraday)")
 try:
-    df5 = to_ist(fetch_ohlc(NIFTY, period="5d", interval="5m"))
+    df5 = to_ist(fetch_one(index_cache, NIFTY))
     latest_trade_date = df5.index[-1].date()
     session_df = df5[
         df5.index.date == latest_trade_date
@@ -496,12 +572,12 @@ except DataError as e:
 
 st.divider()
 
+# 4. CANDLESTICK CHART
 st.subheader("📈 NIFTY Intraday Chart (Candlestick + ZigZag H/L)")
-st.caption("ZigZag sensitivity: lower = more swings, higher = fewer swings")
 zz_pct = st.slider("ZigZag sensitivity (%)", 0.05, 0.50, 0.15, 0.01,
                    key="zz_pct")
 try:
-    df_intra = to_ist(fetch_ohlc(NIFTY, period="5d", interval="5m"))
+    df_intra = to_ist(fetch_one(index_cache, NIFTY))
     latest_trade_date = df_intra.index[-1].date()
     today_df = df_intra[
         df_intra.index.date == latest_trade_date
@@ -520,229 +596,26 @@ try:
             f"to {last_time.strftime('%d-%m-%Y %H:%M %Z')} | "
             f"Candles received: {len(today_df)}"
         )
+
+        prev_sessions = df_intra[df_intra.index.date < latest_trade_date]
+        first_open = float(today_df["Open"].iloc[0])
+        if prev_sessions.empty:
+            open_check = "No previous session in feed"
+        else:
+            prev_close_val = float(prev_sessions["Close"].iloc[-1])
+            gap_pts = first_open - prev_close_val
+            if abs(gap_pts) < 0.5:
+                open_check = (f"First candle Open {first_open:,.2f} equals "
+                              f"previous close {prev_close_val:,.2f} "
+                              "(Yahoo may not show the real opening gap)")
+            else:
+                open_check = (f"Open {first_open:,.2f} vs previous close "
+                              f"{prev_close_val:,.2f} ({gap_pts:+.2f} pts)")
+
         with st.expander("Chart Feed Diagnostics"):
             st.write({
                 "Timezone": str(today_df.index.tz),
                 "First candle": str(today_df.index[0]),
                 "Last candle": str(today_df.index[-1]),
                 "Candle count": len(today_df),
-                "Latest OHLC": {
-                    "Open": float(today_df["Open"].iloc[-1]),
-                    "High": float(today_df["High"].iloc[-1]),
-                    "Low": float(today_df["Low"].iloc[-1]),
-                    "Close": float(today_df["Close"].iloc[-1]),
-                },
-            })
-            st.dataframe(today_df.tail(10), use_container_width=True)
-except DataError as e:
-    st.error(str(e))
-
-st.divider()
-
-colA, colB = st.columns(2)
-with colA:
-    st.subheader("📐 Pivot Points (Zebu)")
-    try:
-        dy = to_ist(fetch_daily(NIFTY))
-        if len(dy) < 2:
-            st.warning("not enough daily candles")
-        else:
-            ref_idx = -2 if dy.index[-1].date() == today_ist() else -1
-            pdh = dy["High"].iloc[ref_idx]
-            pdl = dy["Low"].iloc[ref_idx]
-            pdc = dy["Close"].iloc[ref_idx]
-            lv = pivots(pdh, pdl, pdc)
-            top, bot = cpr(pdh, pdl, pdc)
-            pivot_rows = [
-                ("R3 (Call)", lv["R3"], "green"),
-                ("R2 (Call)", lv["R2"], "green"),
-                ("R1 (Call)", lv["R1"], "green"),
-                ("Pivot", lv["Pivot"], None),
-                ("S1 (Put)", lv["S1"], "red"),
-                ("S2 (Put)", lv["S2"], "red"),
-                ("S3 (Put)", lv["S3"], "red"),
-                ("CPR Top", top, "green"),
-                ("CPR Bot", bot, "red"),
-            ]
-            for label, val, colr in pivot_rows:
-                if colr:
-                    st.markdown(
-                        f"<span style='color:{colr};'>**{label}**: {val:,.1f}</span>",
-                        unsafe_allow_html=True)
-                else:
-                    st.markdown(f"**{label}**: {val:,.1f}")
-    except DataError as e:
-        st.error(str(e))
-
-with colB:
-    st.subheader("🎯 3-Min Gap Levels (Zebu)")
-    st.caption("Accurate 3-min candles (1-min data resampled)")
-    try:
-        df3 = fetch_3m_data(NIFTY)
-        result = calculate_3m_gap_levels(df3)
-        if result[0] is None:
-            st.warning("not enough 3-min data")
-        else:
-            gap_up, gap_down, gap_direction = result
-            if gap_direction == "NO GAP":
-                st.info("No gap detected.")
-            else:
-                up_active = gap_direction == "GAP UP"
-                tab1, tab2 = st.tabs([
-                    "📈 GAP UP (Active)" if up_active else "📈 GAP UP",
-                    "📉 GAP DOWN" if up_active else "📉 GAP DOWN (Active)",
-                ])
-                with tab1:
-                    for k, v in gap_up.items():
-                        st.write(f"**{k}**: {v:,.2f}")
-                with tab2:
-                    for k, v in gap_down.items():
-                        st.write(f"**{k}**: {v:,.2f}")
-    except DataError as e:
-        st.error(str(e))
-
-st.divider()
-
-st.subheader(f"🌐 Market Breadth ({len(HEAVYWEIGHTS)} Heavyweights)")
-data = fetch_many(tuple(HEAVYWEIGHTS))
-rows = []
-for sym, dd in data.items():
-    last_px, prev_px = session_change(dd)
-    if np.isnan(prev_px) or prev_px == 0:
-        continue
-    rows.append({
-        "Symbol": sym.replace(".NS", ""),
-        "Price": last_px,
-        "Change %": (last_px - prev_px) / prev_px * 100,
-    })
-
-if rows:
-    tbl = pd.DataFrame(rows)[["Symbol", "Price", "Change %"]]
-    tbl["Price"] = pd.to_numeric(tbl["Price"], errors="coerce").round(2)
-    tbl = tbl.sort_values("Change %", ascending=False)
-    adv = int((tbl["Change %"] > 0).sum())
-    dec = int((tbl["Change %"] < 0).sum())
-
-    a, b, c = st.columns(3)
-    a.markdown("<span style='color:green;'>**Advancing**</span>",
-               unsafe_allow_html=True)
-    a.markdown(f"<h2 style='color:green;'>{adv}</h2>", unsafe_allow_html=True)
-    b.markdown("<span style='color:red;'>**Declining**</span>",
-               unsafe_allow_html=True)
-    b.markdown(f"<h2 style='color:red;'>{dec}</h2>", unsafe_allow_html=True)
-    c.metric("Avg Change %", f"{tbl['Change %'].mean():+.2f}%")
-
-    def color_symbol_and_change(row):
-        color = ("color: green; font-weight: bold"
-                 if row["Change %"] > 0
-                 else "color: red; font-weight: bold")
-        return [color, "", color]
-
-    styled = tbl.style.apply(color_symbol_and_change, axis=1).format({
-        "Price": "{:.2f}",
-        "Change %": "{:+.2f}%",
-    })
-    st.dataframe(styled, use_container_width=True, hide_index=True)
-else:
-    st.warning("Breadth data unavailable right now.")
-
-st.divider()
-
-st.subheader("🐘 Big Player Entry (பிக் பிளேயர்)")
-hits = big_player_scan(data)
-
-if hits:
-    bp_tbl = pd.DataFrame(hits)[["Stock", "Side", "Volume x", "Price", "Time"]]
-    bp_tbl = bp_tbl.sort_values("Volume x", ascending=False)
-
-    buys = int((bp_tbl["Side"] == "BUY").sum())
-    sells = int((bp_tbl["Side"] == "SELL").sum())
-    total = buys + sells
-
-    col_bar, col_donut = st.columns([2, 1])
-
-    with col_bar:
-        ratio_fig = go.Figure()
-        ratio_fig.add_trace(go.Bar(
-            y=["BUY", "SELL"],
-            x=[buys, sells],
-            orientation="h",
-            marker=dict(
-                color=["#16A34A", "#DC2626"],
-                line=dict(color="#111827", width=1),
-            ),
-            text=[f"{buys} stocks", f"{sells} stocks"],
-            textposition="outside",
-        ))
-        ratio_fig.update_layout(
-            title="BUY vs SELL Pressure",
-            height=220,
-            margin=dict(l=10, r=40, t=40, b=10),
-            plot_bgcolor="white",
-            showlegend=False,
-            xaxis=dict(showgrid=True, gridcolor="#E5E7EB",
-                       title="Number of Stocks"),
-            yaxis=dict(showgrid=False),
-        )
-        st.plotly_chart(ratio_fig, use_container_width=True)
-
-    with col_donut:
-        if total > 0:
-            donut_fig = go.Figure()
-            donut_fig.add_trace(go.Pie(
-                labels=["BUY", "SELL"],
-                values=[buys, sells],
-                hole=0.55,
-                marker=dict(colors=["#16A34A", "#DC2626"]),
-                textinfo="label+percent",
-                textfont=dict(size=13, color="white"),
-            ))
-            donut_fig.update_layout(
-                title="Ratio",
-                height=220,
-                margin=dict(l=10, r=10, t=40, b=10),
-                showlegend=False,
-            )
-            st.plotly_chart(donut_fig, use_container_width=True)
-
-    st.dataframe(bp_tbl, use_container_width=True, hide_index=True)
-
-    if buys > sells:
-        st.success(f"🟢 பெரிய வாங்குதல் அதிகம்: BUY {buys} / SELL {sells}")
-    elif sells > buys:
-        st.error(f"🔴 பெரிய விற்பனை அதிகம்: SELL {sells} / BUY {buys}")
-    else:
-        st.info(f"🟡 கலவையான நிலை: BUY {buys} / SELL {sells}")
-else:
-    st.caption("கடைசி 5m கேண்டிலில் பெரிய வால்யூம் என்ட்ரி எதுவும் இல்லை.")
-
-st.caption("Volume-spike based estimate, not actual FII/DII data.")
-
-st.divider()
-
-st.subheader("📰 Market News (தமிழ்)")
-try:
-    news_all, feed_status = load_news()
-except Exception as exc:
-    news_all, feed_status = [], pd.DataFrame()
-    st.error(f"News load failed: {exc}")
-
-matched = [
-    n for n in news_all
-    if any(k in n["title"].lower() for k in MARKET_KEYWORDS)
-]
-shown = (matched or news_all)[:10]
-if shown:
-    for n in shown:
-        st.markdown(
-            f"- [{n['title']}]({n['link']})  \n  <small>{n['source']}</small>",
-            unsafe_allow_html=True,
-        )
-else:
-    st.info("News feeds returned no headlines right now.")
-
-if not feed_status.empty:
-    with st.expander("News feed status"):
-        st.dataframe(feed_status, use_container_width=True, hide_index=True)
-
-st.caption("Educational tool only. Not financial advice.")
+                "Open check": op
